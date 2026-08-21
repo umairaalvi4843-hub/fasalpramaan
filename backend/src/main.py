@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from src.config import settings
-from src.models import PlotRequest, AnalysisResult
+from src.models import PlotRequest, AnalysisResult, CompareRequest, CompareResult
 from src.ee_engine import EarthEngineAnalyzer
 from src.weather import WeatherAnalyzer
 from src.appeal_generator import AppealGenerator
@@ -168,7 +168,6 @@ async def _perform_analysis(request: PlotRequest) -> AnalysisResult:
 async def analyze_plot(request: PlotRequest):
     """Analyze a plot using real satellite and weather data."""
     try:
-        # Run analysis with timeout
         result = await asyncio.wait_for(
             _perform_analysis(request),
             timeout=120.0
@@ -180,6 +179,87 @@ async def analyze_plot(request: PlotRequest):
     except Exception as e:
         logger.error(f"❌ Analysis failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/compare", response_model=CompareResult)
+async def compare_plots(request: CompareRequest):
+    """Compare two plots side-by-side."""
+    try:
+        logger.info(f"📊 Comparing plots: {request.plot1_id} vs {request.plot2_id}")
+        
+        # Get plot data from config
+        plot1_data = settings.DEMO_PLOTS.get(request.plot1_id)
+        plot2_data = settings.DEMO_PLOTS.get(request.plot2_id)
+        
+        if not plot1_data or not plot2_data:
+            raise HTTPException(status_code=404, detail="One or both plots not found")
+        
+        # Analyze both plots
+        plot1_req = PlotRequest(
+            latitude=plot1_data['latitude'],
+            longitude=plot1_data['longitude'],
+            start_date=plot1_data['damage_period']['start'],
+            end_date=plot1_data['damage_period']['end'],
+            crop=plot1_data['crop'],
+            name=plot1_data['name']
+        )
+        
+        plot2_req = PlotRequest(
+            latitude=plot2_data['latitude'],
+            longitude=plot2_data['longitude'],
+            start_date=plot2_data['damage_period']['start'],
+            end_date=plot2_data['damage_period']['end'],
+            crop=plot2_data['crop'],
+            name=plot2_data['name']
+        )
+        
+        # Run both analyses in parallel
+        plot1_result, plot2_result = await asyncio.gather(
+            _perform_analysis(plot1_req),
+            _perform_analysis(plot2_req)
+        )
+        
+        # Generate comparison summary
+        comparison_summary = _generate_comparison_summary(plot1_result, plot2_result)
+        
+        return CompareResult(
+            plot1=plot1_result,
+            plot2=plot2_result,
+            comparison_summary=comparison_summary
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Comparison failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _generate_comparison_summary(plot1: AnalysisResult, plot2: AnalysisResult) -> str:
+    """Generate a human-readable comparison summary."""
+    diff_deviation = abs(plot1.deviation_score - plot2.deviation_score)
+    diff_rainfall = abs(plot1.rainfall_total - plot2.rainfall_total)
+    
+    if plot1.deviation_score < plot2.deviation_score:
+        more_stressed = plot1.plot_name
+        less_stressed = plot2.plot_name
+    else:
+        more_stressed = plot2.plot_name
+        less_stressed = plot1.plot_name
+    
+    summary = f"""
+    📊 Comparison Summary:
+    
+    • {plot1.plot_name}: NDVI Deviation = {plot1.deviation_score:.2f} σ | Rainfall = {plot1.rainfall_total:.1f} mm | Status: {plot1.status}
+    • {plot2.plot_name}: NDVI Deviation = {plot2.deviation_score:.2f} σ | Rainfall = {plot2.rainfall_total:.1f} mm | Status: {plot2.status}
+    
+    🔑 Key Insights:
+    • {more_stressed} shows more vegetation stress than {less_stressed} ({diff_deviation:.2f} σ difference)
+    • Rainfall difference: {diff_rainfall:.1f} mm between the two plots
+    • {plot1.plot_name} has {plot1.image_count} cloud-free images vs {plot2.image_count} for {plot2.plot_name}
+    
+    💡 Recommendation: {'Both plots show anomalies' if plot1.status == 'anomaly_detected' and plot2.status == 'anomaly_detected' else 'One plot shows normal vegetation while the other shows stress'}
+    """
+    
+    return summary.strip()
 
 
 @app.post("/api/appeal/pdf")

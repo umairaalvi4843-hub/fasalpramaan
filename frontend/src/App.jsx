@@ -48,9 +48,16 @@ function App() {
   const [isAnimating, setIsAnimating] = useState(false)
   const [animationStep, setAnimationStep] = useState(0)
   const [animationData, setAnimationData] = useState([])
+  const [compareMode, setCompareMode] = useState(false)
+  const [selectedPlots, setSelectedPlots] = useState([])
+  const [compareResult, setCompareResult] = useState(null)
+  const [comparing, setComparing] = useState(false)
   const animationInterval = useRef(null)
 
-  // Fetch demo plots on mount
+  // Chart refs for legend toggle
+  const chartRef = useRef(null)
+  const animationChartRef = useRef(null)
+
   useEffect(() => {
     fetchDemoPlots()
     return () => {
@@ -70,12 +77,27 @@ function App() {
   }
 
   const analyzePlot = async (plot) => {
+    if (compareMode) {
+      setSelectedPlots(prev => {
+        if (prev.find(p => p.id === plot.id)) {
+          return prev.filter(p => p.id !== plot.id)
+        }
+        if (prev.length >= 2) {
+          alert('You can compare only 2 plots at a time. Please deselect one first.')
+          return prev
+        }
+        return [...prev, plot]
+      })
+      return
+    }
+
     setLoading(true)
     setError(null)
     setSelectedPlot(plot)
     setAnalysis(null)
     setAnimationData([])
     setAnimationStep(0)
+    setCompareResult(null)
     if (animationInterval.current) {
       clearInterval(animationInterval.current)
       animationInterval.current = null
@@ -93,7 +115,6 @@ function App() {
         timeout: 180000
       })
       setAnalysis(res.data)
-      // Prepare animation data
       if (res.data.current_ndvi_values && res.data.current_ndvi_values.length > 0) {
         const data = res.data.current_ndvi_values.map((val, idx) => ({
           date: res.data.current_dates[idx] || `Day ${idx + 1}`,
@@ -112,24 +133,52 @@ function App() {
     }
   }
 
-  // Start/Stop animation
+  const runComparison = async () => {
+    if (selectedPlots.length !== 2) {
+      alert('Please select exactly 2 plots to compare.')
+      return
+    }
+
+    setComparing(true)
+    setError(null)
+    setCompareResult(null)
+    setAnalysis(null)
+
+    try {
+      const res = await axios.post(`${API_URL}/api/compare`, {
+        plot1_id: selectedPlots[0].id,
+        plot2_id: selectedPlots[1].id
+      }, {
+        timeout: 240000
+      })
+      setCompareResult(res.data)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Comparison failed. Please try again.')
+    } finally {
+      setComparing(false)
+    }
+  }
+
+  const toggleCompareMode = () => {
+    setCompareMode(!compareMode)
+    setSelectedPlots([])
+    setCompareResult(null)
+  }
+
   const toggleAnimation = () => {
     if (isAnimating) {
-      // Stop animation
       if (animationInterval.current) {
         clearInterval(animationInterval.current)
         animationInterval.current = null
       }
       setIsAnimating(false)
     } else {
-      // Start animation
       setIsAnimating(true)
       setAnimationStep(0)
       animationInterval.current = setInterval(() => {
         setAnimationStep((prev) => {
           const maxStep = animationData.length > 0 ? animationData.length : 10
           if (prev >= maxStep - 1) {
-            // Loop back to start
             return 0
           }
           return prev + 1
@@ -138,7 +187,17 @@ function App() {
     }
   }
 
-  // Chart data for NDVI
+  // Legend click handler - toggles dataset visibility
+  const legendClickHandler = (e, legendItem, legend) => {
+    const chart = legend.chart
+    const datasetIndex = legendItem.datasetIndex
+    const meta = chart.getDatasetMeta(datasetIndex)
+    
+    // Toggle visibility
+    meta.hidden = meta.hidden === null ? !chart.data.datasets[datasetIndex].hidden : !meta.hidden
+    chart.update()
+  }
+
   const getChartData = () => {
     if (!analysis) return null
     
@@ -153,7 +212,8 @@ function App() {
         tension: 0.4,
         pointRadius: 5,
         pointHoverRadius: 8,
-        borderWidth: 3
+        borderWidth: 3,
+        hidden: false
       }
     ]
     
@@ -169,7 +229,8 @@ function App() {
             tension: 0.4,
             pointRadius: 3,
             pointHoverRadius: 6,
-            borderWidth: 2
+            borderWidth: 2,
+            hidden: false
           })
         }
       })
@@ -181,7 +242,6 @@ function App() {
     }
   }
 
-  // Animation chart data
   const getAnimationChartData = () => {
     if (!analysis || animationData.length === 0) return null
     
@@ -189,7 +249,6 @@ function App() {
     const animatedValues = animationData.slice(0, currentStep).map(d => d.ndvi)
     const animatedLabels = animationData.slice(0, currentStep).map(d => d.date)
     
-    // Pad with null values to maintain chart size
     while (animatedValues.length < animationData.length) {
       animatedValues.push(null)
     }
@@ -209,7 +268,8 @@ function App() {
           tension: 0.4,
           pointRadius: 6,
           pointBackgroundColor: '#1a472a',
-          borderWidth: 3
+          borderWidth: 3,
+          hidden: false
         }
       ]
     }
@@ -225,7 +285,8 @@ function App() {
           usePointStyle: true,
           padding: 16,
           font: { size: 11 }
-        }
+        },
+        onClick: legendClickHandler
       },
       title: {
         display: true,
@@ -248,7 +309,7 @@ function App() {
         ticks: { stepSize: 0.2 },
         title: {
           display: true,
-          text: 'NDVI (0-1)',
+          text: 'NDVI (0 to 1)',
           font: { size: 10 }
         }
       },
@@ -272,6 +333,13 @@ function App() {
           usePointStyle: true,
           padding: 16,
           font: { size: 11 }
+        },
+        onClick: function(e, legendItem, legend) {
+          const chart = legend.chart
+          const datasetIndex = legendItem.datasetIndex
+          const meta = chart.getDatasetMeta(datasetIndex)
+          meta.hidden = meta.hidden === null ? !chart.data.datasets[datasetIndex].hidden : !meta.hidden
+          chart.update()
         }
       },
       title: {
@@ -295,7 +363,7 @@ function App() {
         ticks: { stepSize: 0.2 },
         title: {
           display: true,
-          text: 'NDVI (0-1)',
+          text: 'NDVI (0 to 1)',
           font: { size: 10 }
         }
       },
@@ -346,9 +414,38 @@ function App() {
     }
   }
 
+  const parseComparisonSummary = (summary) => {
+    if (!summary) return { metrics: [], insights: [], recommendation: '' }
+    
+    const lines = summary.split('\n').filter(line => line.trim())
+    const metrics = []
+    const insights = []
+    let recommendation = ''
+    
+    let currentSection = 'metrics'
+    
+    lines.forEach(line => {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('📊') || trimmed.startsWith('•')) {
+        currentSection = 'metrics'
+        metrics.push(trimmed)
+      } else if (trimmed.startsWith('🔑')) {
+        currentSection = 'insights'
+      } else if (trimmed.startsWith('💡')) {
+        currentSection = 'recommendation'
+        recommendation = trimmed.replace('💡', '').trim()
+      } else if (currentSection === 'insights' && trimmed) {
+        insights.push(trimmed)
+      } else if (currentSection === 'recommendation' && trimmed && !trimmed.startsWith('💡')) {
+        recommendation += ' ' + trimmed
+      }
+    })
+    
+    return { metrics, insights, recommendation: recommendation.trim() }
+  }
+
   return (
     <div className="app">
-      {/* Header */}
       <header className="header">
         <div className="header-content">
           <div className="header-left">
@@ -359,13 +456,30 @@ function App() {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="main">
-        {/* Left Panel - Map + Chart */}
         <div className="left-panel">
           <div className="card">
             <div className="card-title">
               <span className="icon">📍</span> Select a Demo Plot
+            </div>
+            <div className="compare-toggle">
+              <button 
+                className={`compare-toggle-btn ${compareMode ? 'active' : ''}`}
+                onClick={toggleCompareMode}
+              >
+                {compareMode ? '🔀 Exit Compare Mode' : '🔀 Compare Plots'}
+              </button>
+              {compareMode && (
+                <div className="compare-info">
+                  <span>Select 2 plots to compare</span>
+                  <span className="selected-count">{selectedPlots.length}/2 selected</span>
+                  {selectedPlots.length === 2 && (
+                    <button className="compare-run-btn" onClick={runComparison} disabled={comparing}>
+                      {comparing ? '⏳ Comparing...' : '⚡ Run Comparison'}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             <div className="map-container">
               <MapContainer 
@@ -394,31 +508,38 @@ function App() {
               </MapContainer>
             </div>
             <div className="plot-selector">
-              {plots.map((plot) => (
-                <button
-                  key={plot.id}
-                  className={`plot-btn ${selectedPlot?.id === plot.id ? 'active' : ''}`}
-                  onClick={() => analyzePlot(plot)}
-                >
-                  <span className="plot-name">{plot.icon || '🌾'} {plot.name}</span>
-                  <span className="plot-meta">{plot.crop} · {plot.state}</span>
-                </button>
-              ))}
+              {plots.map((plot) => {
+                const isSelected = selectedPlots.find(p => p.id === plot.id)
+                return (
+                  <button
+                    key={plot.id}
+                    className={`plot-btn ${selectedPlot?.id === plot.id && !compareMode ? 'active' : ''} ${compareMode && isSelected ? 'compare-selected' : ''}`}
+                    onClick={() => analyzePlot(plot)}
+                  >
+                    <span className="plot-name">{plot.icon || '🌾'} {plot.name}</span>
+                    <span className="plot-meta">{plot.crop} · {plot.state}</span>
+                    {compareMode && isSelected && <span className="selected-badge">✓ Selected</span>}
+                  </button>
+                )
+              })}
             </div>
           </div>
 
-          {analysis && (
+          {analysis && !compareMode && (
             <>
               <div className="card">
                 <div className="card-title">
                   <span className="icon">📈</span> NDVI Trend
                 </div>
                 <div className="chart-container">
-                  <Line data={getChartData()} options={chartOptions} />
+                  <Line 
+                    ref={chartRef}
+                    data={getChartData()} 
+                    options={chartOptions} 
+                  />
                 </div>
               </div>
 
-              {/* Animation Chart */}
               <div className="card">
                 <div className="animation-header">
                   <div className="card-title" style={{ marginBottom: 0 }}>
@@ -454,6 +575,7 @@ function App() {
                 <div className="chart-container">
                   {animationData && animationData.length > 0 ? (
                     <Line 
+                      ref={animationChartRef}
                       data={getAnimationChartData()} 
                       options={animationChartOptions} 
                       key={animationStep}
@@ -475,20 +597,132 @@ function App() {
               </div>
             </>
           )}
+
+          {compareResult && compareMode && (
+            <div className="card compare-result-card">
+              <div className="card-title">
+                <span className="icon">📊</span> Comparison Results
+                <button 
+                  className="close-compare-btn"
+                  onClick={() => {
+                    setCompareResult(null)
+                    setSelectedPlots([])
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div className="compare-grid">
+                <div className={`compare-item ${compareResult.plot1.status === 'anomaly_detected' ? 'stress' : 'healthy'}`}>
+                  <div className="compare-item-header">
+                    <span className="compare-crop">{compareResult.plot1.crop}</span>
+                    <span className={`compare-status-badge ${compareResult.plot1.status}`}>
+                      {compareResult.plot1.status === 'anomaly_detected' ? '⚠️ Stress' : '✅ Healthy'}
+                    </span>
+                  </div>
+                  <h4>{compareResult.plot1.plot_name}</h4>
+                  <div className="compare-metrics">
+                    <div className="compare-metric">
+                      <span className="metric-icon">🌿</span>
+                      <span className="metric-value">{compareResult.plot1.deviation_score.toFixed(2)} σ</span>
+                      <span className="metric-label">NDVI Deviation</span>
+                    </div>
+                    <div className="compare-metric">
+                      <span className="metric-icon">💧</span>
+                      <span className="metric-value">{compareResult.plot1.rainfall_total.toFixed(1)} mm</span>
+                      <span className="metric-label">Rainfall</span>
+                    </div>
+                    <div className="compare-metric">
+                      <span className="metric-icon">📅</span>
+                      <span className="metric-value">{compareResult.plot1.image_count}</span>
+                      <span className="metric-label">Images</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="compare-vs">
+                  <span className="vs-badge">⚡ VS</span>
+                </div>
+                
+                <div className={`compare-item ${compareResult.plot2.status === 'anomaly_detected' ? 'stress' : 'healthy'}`}>
+                  <div className="compare-item-header">
+                    <span className="compare-crop">{compareResult.plot2.crop}</span>
+                    <span className={`compare-status-badge ${compareResult.plot2.status}`}>
+                      {compareResult.plot2.status === 'anomaly_detected' ? '⚠️ Stress' : '✅ Healthy'}
+                    </span>
+                  </div>
+                  <h4>{compareResult.plot2.plot_name}</h4>
+                  <div className="compare-metrics">
+                    <div className="compare-metric">
+                      <span className="metric-icon">🌿</span>
+                      <span className="metric-value">{compareResult.plot2.deviation_score.toFixed(2)} σ</span>
+                      <span className="metric-label">NDVI Deviation</span>
+                    </div>
+                    <div className="compare-metric">
+                      <span className="metric-icon">💧</span>
+                      <span className="metric-value">{compareResult.plot2.rainfall_total.toFixed(1)} mm</span>
+                      <span className="metric-label">Rainfall</span>
+                    </div>
+                    <div className="compare-metric">
+                      <span className="metric-icon">📅</span>
+                      <span className="metric-value">{compareResult.plot2.image_count}</span>
+                      <span className="metric-label">Images</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {(() => {
+                const parsed = parseComparisonSummary(compareResult.comparison_summary)
+                return (
+                  <>
+                    {parsed.insights.length > 0 && (
+                      <div className="compare-insights">
+                        <h4>🔑 Key Insights</h4>
+                        <ul>
+                          {parsed.insights.map((insight, idx) => (
+                            <li key={idx}>{insight}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {parsed.recommendation && (
+                      <div className={`compare-recommendation ${compareResult.plot1.status === 'anomaly_detected' && compareResult.plot2.status === 'anomaly_detected' ? 'warning' : ''}`}>
+                        <span className="rec-icon">💡</span>
+                        <div>
+                          <strong>Recommendation</strong>
+                          <p>{parsed.recommendation}</p>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
+          )}
         </div>
 
-        {/* Right Panel - Analysis Results */}
         <div className="right-panel">
           <div className="card">
             <div className="card-title">
-              <span className="icon">📊</span> Analysis Results
+              <span className="icon">📊</span> {compareMode ? 'Comparison Mode' : 'Analysis Results'}
             </div>
             
             {loading && (
               <div className="loading">
                 <div className="spinner"></div>
                 <p>Analyzing satellite and weather data...</p>
-                <p className="loading-hint">This may take 30-90 seconds depending on data availability</p>
+                <p className="loading-hint">This may take 30-90 seconds</p>
+              </div>
+            )}
+
+            {comparing && (
+              <div className="loading">
+                <div className="spinner"></div>
+                <p>Comparing plots...</p>
+                <p className="loading-hint">This may take 60-120 seconds</p>
               </div>
             )}
 
@@ -499,9 +733,8 @@ function App() {
               </div>
             )}
 
-            {analysis && !loading && (
+            {analysis && !loading && !compareMode && (
               <div className="results">
-                {/* Status Banner */}
                 <div className={`status-banner ${analysis.status || 'normal'}`}>
                   <span className="status-icon">
                     {analysis.status === 'anomaly_detected' ? '⚠️' : '✅'}
@@ -512,7 +745,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* Stats Grid */}
                 <div className="stats-grid">
                   <div className="stat-card">
                     <div className="stat-icon">🌿</div>
@@ -556,7 +788,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* Weather Summary */}
                 {analysis.weather_summary && (
                   <div className="weather-summary-box">
                     <h4>🌤️ Weather Summary</h4>
@@ -570,13 +801,11 @@ function App() {
                   </div>
                 )}
 
-                {/* Summary */}
                 <div className="summary-box">
                   <h4>📋 Plain Language Summary</h4>
                   <p>{analysis.summary || 'No summary available'}</p>
                 </div>
 
-                {/* Download Section */}
                 <div className="download-section">
                   <div className="download-label">📄 Download Appeal Document:</div>
                   <div className="download-buttons">
@@ -609,10 +838,17 @@ function App() {
               </div>
             )}
 
-            {!analysis && !loading && !error && (
+            {!analysis && !loading && !compareMode && !error && (
               <div className="placeholder">
                 <p>Select a plot on the map to run the analysis.</p>
                 <div className="hint">Showing data for documented cases across India</div>
+              </div>
+            )}
+
+            {compareMode && !compareResult && !comparing && !error && (
+              <div className="placeholder">
+                <p>🔀 Select 2 plots to compare them side-by-side</p>
+                <div className="hint">Click on markers or buttons to select plots</div>
               </div>
             )}
           </div>

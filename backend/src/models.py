@@ -9,6 +9,10 @@ class PlotRequest(BaseModel):
     crop: Optional[str] = None
     name: Optional[str] = None
 
+class CompareRequest(BaseModel):
+    plot1_id: str
+    plot2_id: str
+
 class AnalysisResult(BaseModel):
     plot_id: str
     plot_name: str
@@ -47,3 +51,8 @@ class AnalysisResult(BaseModel):
     # Metadata
     image_count: int
     cloud_cover_avg: float
+
+class CompareResult(BaseModel):
+    plot1: AnalysisResult
+    plot2: AnalysisResult
+    comparison_summary: str
