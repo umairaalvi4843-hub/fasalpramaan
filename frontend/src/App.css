@@ -1,0 +1,263 @@
+.app {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.header {
+    background: linear-gradient(135deg, #1a472a, #2d6a4f);
+    color: white;
+    padding: 1rem 2rem;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.header-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header h1 {
+    font-size: 1.8rem;
+    font-weight: 700;
+}
+
+.subtitle {
+    opacity: 0.8;
+    font-size: 0.9rem;
+}
+
+.main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 2rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    flex: 1;
+}
+
+.map-section,
+.analysis-section {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.map-section h2,
+.analysis-section h2 {
+    font-size: 1.2rem;
+    margin-bottom: 1rem;
+    color: #0f172a;
+}
+
+.map-container {
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+}
+
+.plot-selector {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+}
+
+.plot-btn {
+    padding: 0.5rem 1.2rem;
+    border: 2px solid #e2e8f0;
+    background: white;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+
+.plot-btn:hover {
+    border-color: #2d6a4f;
+    background: #f0f7f2;
+}
+
+.plot-btn.active {
+    border-color: #2d6a4f;
+    background: #2d6a4f;
+    color: white;
+}
+
+.loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    gap: 1rem;
+}
+
+.spinner {
+    animation: spin 1s linear infinite;
+    width: 2rem;
+    height: 2rem;
+    color: #2d6a4f;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.error {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    color: #dc2626;
+}
+
+.results {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.status-banner {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    border-radius: 8px;
+    border-left: 4px solid;
+}
+
+.status-banner.anomaly_detected {
+    background: #fef2f2;
+    border-color: #ef4444;
+}
+
+.status-banner.normal {
+    background: #f0fdf4;
+    border-color: #22c55e;
+}
+
+.status-banner h3 {
+    font-size: 1rem;
+}
+
+.status-banner p {
+    font-size: 0.9rem;
+    color: #475569;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.stat-card {
+    background: #f8fafc;
+    padding: 1rem;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.stat-card h4 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #64748b;
+    margin-top: 0.25rem;
+}
+
+.stat-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin: 0.25rem 0;
+}
+
+.stat-value.negative {
+    color: #dc2626;
+}
+
+.stat-value.normal {
+    color: #16a34a;
+}
+
+.stat-label {
+    font-size: 0.75rem;
+    color: #94a3b8;
+}
+
+.summary-box {
+    background: #f0f7f2;
+    padding: 1rem;
+    border-radius: 8px;
+    border-left: 4px solid #2d6a4f;
+}
+
+.summary-box h4 {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+}
+
+.summary-box p {
+    line-height: 1.6;
+    color: #334155;
+}
+
+.appeal-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1.2rem;
+    background: #2d6a4f;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background 0.2s;
+    width: fit-content;
+}
+
+.appeal-btn:hover {
+    background: #1a472a;
+}
+
+.placeholder {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #94a3b8;
+}
+
+.placeholder .hint {
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    .main {
+        grid-template-columns: 1fr;
+        padding: 1rem;
+    }
+
+    .header h1 {
+        font-size: 1.4rem;
+    }
+
+    .header-content {
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+}
