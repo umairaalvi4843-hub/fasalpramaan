@@ -18,29 +18,59 @@ class Settings:
         "https://*.vercel.app"
     ]
     
-    # Demo plots (2017 Haryana dispute)
+    # Demo plots - 4 documented cases across India
     DEMO_PLOTS = {
         "sirsa_cotton": {
             "id": "sirsa_cotton",
             "name": "Sirsa Cotton (2017)",
             "latitude": 29.5339,
             "longitude": 75.0284,
-            "crop": "cotton",
+            "crop": "Cotton",
             "season": "Kharif 2017",
             "damage_period": {"start": "2017-07-01", "end": "2017-09-30"},
             "district": "Sirsa",
-            "state": "Haryana"
+            "state": "Haryana",
+            "description": "Insurance company rejected ₹390 crore cotton claims using satellite evidence",
+            "icon": "🌾"
         },
         "bhiwani_bajra": {
             "id": "bhiwani_bajra",
             "name": "Bhiwani Bajra (2017)",
             "latitude": 28.7931,
             "longitude": 76.1397,
-            "crop": "bajra",
+            "crop": "Bajra",
             "season": "Kharif 2017",
             "damage_period": {"start": "2017-07-01", "end": "2017-09-30"},
             "district": "Bhiwani",
-            "state": "Haryana"
+            "state": "Haryana",
+            "description": "Part of ₹390 crore dispute where satellite data was used against farmers",
+            "icon": "🌾"
+        },
+        "vidarbha_cotton": {
+            "id": "vidarbha_cotton",
+            "name": "Vidarbha Cotton (2018-19)",
+            "latitude": 20.7500,
+            "longitude": 78.6000,
+            "crop": "Cotton",
+            "season": "Kharif 2018-19",
+            "damage_period": {"start": "2018-08-01", "end": "2018-10-31"},
+            "district": "Wardha",
+            "state": "Maharashtra",
+            "description": "Documented drought in India's cotton belt affecting thousands of farmers",
+            "icon": "🌾"
+        },
+        "mandya_paddy": {
+            "id": "mandya_paddy",
+            "name": "Mandya Paddy (2021)",
+            "latitude": 12.5200,
+            "longitude": 76.9000,
+            "crop": "Paddy",
+            "season": "Kharif 2021",
+            "damage_period": {"start": "2021-07-01", "end": "2021-09-30"},
+            "district": "Mandya",
+            "state": "Karnataka",
+            "description": "Paddy is YES-TECH mandatory crop; farmers facing assessment disputes",
+            "icon": "🌾"
         }
     }
 

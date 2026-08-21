@@ -1,6 +1,7 @@
 """
 Earth Engine integration for FasalPramaan
 Handles Sentinel-2 imagery, NDVI calculation, and time series analysis
+With caching to reduce latency
 """
 
 import ee
@@ -9,6 +10,9 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import logging
 import time
+import hashlib
+import json
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,18 +25,56 @@ try:
     logger.info("✅ Earth Engine initialized successfully")
 except Exception as e:
     logger.warning(f"⚠️ Earth Engine not available: {e}")
-    logger.warning("⚠️ Running in mock mode (EE not available)")
 
-# Earth Engine doesn't support async, but we can use timeouts
-EARTH_ENGINE_TIMEOUT = 8  # seconds per operation
+# Cache directory
+CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'cache')
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+# Earth Engine timeout
+EARTH_ENGINE_TIMEOUT = 8
 
 
 class EarthEngineAnalyzer:
-    """Main class for Earth Engine operations"""
+    """Main class for Earth Engine operations with caching"""
     
     def __init__(self):
         self.sentinel2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
         self.landsat = ee.ImageCollection("LANDSAT/LC09/C02/T1_L2")
+    
+    def _get_cache_key(self, latitude: float, longitude: float, start_date: str, end_date: str) -> str:
+        """Generate a unique cache key for a query"""
+        key = f"{latitude}_{longitude}_{start_date}_{end_date}"
+        return hashlib.md5(key.encode()).hexdigest()
+    
+    def _get_cached_result(self, cache_key: str) -> Optional[Dict]:
+        """Get cached result if it exists and is recent (< 24 hours)"""
+        cache_file = os.path.join(CACHE_DIR, f"{cache_key}.json")
+        if os.path.exists(cache_file):
+            try:
+                with open(cache_file, 'r') as f:
+                    data = json.load(f)
+                # Check if cache is less than 24 hours old
+                cache_time = datetime.fromisoformat(data.get('_cache_time', '2000-01-01T00:00:00'))
+                if (datetime.now() - cache_time).total_seconds() < 86400:  # 24 hours
+                    logger.info(f"✅ Cache hit for {cache_key}")
+                    return data.get('result')
+            except Exception as e:
+                logger.warning(f"Cache read failed: {e}")
+        return None
+    
+    def _save_to_cache(self, cache_key: str, result: Dict):
+        """Save result to cache"""
+        cache_file = os.path.join(CACHE_DIR, f"{cache_key}.json")
+        try:
+            data = {
+                '_cache_time': datetime.now().isoformat(),
+                'result': result
+            }
+            with open(cache_file, 'w') as f:
+                json.dump(data, f)
+            logger.info(f"💾 Cached result for {cache_key}")
+        except Exception as e:
+            logger.warning(f"Cache write failed: {e}")
     
     def get_ndvi_time_series(
         self, 
@@ -40,54 +82,65 @@ class EarthEngineAnalyzer:
         longitude: float, 
         start_date: str, 
         end_date: str,
-        max_cloud_cover: float = 30
+        max_cloud_cover: float = 20
     ) -> Dict:
         """
-        Get NDVI time series for a specific location and date range.
+        Get NDVI time series with caching.
         """
+        # Check cache first
+        cache_key = self._get_cache_key(latitude, longitude, start_date, end_date)
+        cached = self._get_cached_result(cache_key)
+        if cached:
+            return cached
+        
         if not EE_AVAILABLE:
             return self._get_empty_response("Earth Engine not available")
         
         try:
             point = ee.Geometry.Point([longitude, latitude])
             
-            # Build both collections but don't evaluate yet
+            # Build collections
             sentinel_collection = (self.sentinel2
                 .filterBounds(point)
                 .filterDate(start_date, end_date)
                 .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', max_cloud_cover)))
             
+            # Check Sentinel-2 count with timeout
+            sentinel_count = self._get_count_with_timeout(sentinel_collection)
+            logger.info(f"Found {sentinel_count} Sentinel-2 images")
+            
+            if sentinel_count > 0:
+                result = self._process_collection(sentinel_collection, point, sentinel_count, "Sentinel-2")
+                self._save_to_cache(cache_key, result)
+                return result
+            
+            # Try Landsat
             landsat_collection = (self.landsat
                 .filterBounds(point)
                 .filterDate(start_date, end_date)
                 .filter(ee.Filter.lt('CLOUD_COVER', max_cloud_cover)))
             
-            # Check Sentinel-2 count first (with timeout)
-            sentinel_count = self._get_count_with_timeout(sentinel_collection)
-            logger.info(f"Found {sentinel_count} Sentinel-2 images")
-            
-            if sentinel_count > 0:
-                return self._process_collection(sentinel_collection, point, sentinel_count, "Sentinel-2")
-            
-            # Check Landsat count (with timeout)
             landsat_count = self._get_count_with_timeout(landsat_collection)
             logger.info(f"Found {landsat_count} Landsat images")
             
             if landsat_count > 0:
-                return self._process_collection(landsat_collection, point, landsat_count, "Landsat")
+                result = self._process_collection(landsat_collection, point, landsat_count, "Landsat")
+                self._save_to_cache(cache_key, result)
+                return result
             
-            # No images found — return empty with message
-            logger.info("No cloud-free imagery available for this location/period")
-            return self._get_empty_response("No cloud-free imagery available")
+            result = self._get_empty_response("No cloud-free imagery available")
+            self._save_to_cache(cache_key, result)
+            return result
                 
         except Exception as e:
             logger.error(f"Error in get_ndvi_time_series: {e}")
-            return self._get_empty_response(str(e))
+            result = self._get_empty_response(str(e))
+            self._save_to_cache(cache_key, result)
+            return result
     
     def _get_count_with_timeout(self, collection) -> int:
         """Get collection size with timeout"""
         try:
-            # Set a timeout for the getInfo call
             import threading
             result = [None]
             error = [None]
@@ -103,7 +156,7 @@ class EarthEngineAnalyzer:
             thread.join(timeout=EARTH_ENGINE_TIMEOUT)
             
             if thread.is_alive():
-                logger.warning("⏱️ Earth Engine operation timed out")
+                logger.warning("⏱️ Count check timed out")
                 return 0
             
             if error[0]:
@@ -116,13 +169,14 @@ class EarthEngineAnalyzer:
             return 0
     
     def _process_collection(self, collection, point, count: int, source: str) -> Dict:
-        """Process images from a collection"""
+        """Process images from a collection - optimized"""
         try:
             dates = []
             ndvi_values = []
             cloud_covers = []
             
-            limit = min(count, 20)
+            # Only process up to 10 images
+            limit = min(count, 10)
             ndvi_list = collection.toList(limit)
             
             for i in range(limit):
@@ -219,9 +273,7 @@ class EarthEngineAnalyzer:
         current_season_end: str,
         num_prior_seasons: int = 2
     ) -> Dict:
-        """
-        Get historical NDVI baseline for comparison.
-        """
+        """Get historical NDVI baseline with caching."""
         try:
             start = datetime.fromisoformat(current_season_start)
             end = datetime.fromisoformat(current_season_end)
@@ -253,8 +305,6 @@ class EarthEngineAnalyzer:
                     historical_ndvi.append(data['ndvi_values'])
                     historical_dates.append(data['dates'])
                 else:
-                    # Return empty season (no mock data)
-                    logger.warning(f"No data for season {year_offset} prior")
                     historical_ndvi.append([])
                     historical_dates.append([])
                     

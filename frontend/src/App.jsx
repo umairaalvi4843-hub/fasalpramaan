@@ -74,10 +74,16 @@ function App() {
         end_date: plot.damage_period.end,
         crop: plot.crop,
         name: plot.name
+      }, {
+        timeout: 180000  // 180 seconds (3 minutes)
       })
       setAnalysis(res.data)
     } catch (err) {
-      setError(err.response?.data?.detail || 'Analysis failed. Please try again.')
+      if (err.code === 'ECONNABORTED') {
+        setError('⏱️ Analysis is taking longer than expected. The plot may have limited satellite data. Please try again or select a different plot.')
+      } else {
+        setError(err.response?.data?.detail || 'Analysis failed. Please try again.')
+      }
     } finally {
       setLoading(false)
     }
@@ -104,17 +110,19 @@ function App() {
     
     if (analysis.historical_ndvi_values) {
       analysis.historical_ndvi_values.forEach((values, index) => {
-        datasets.push({
-          label: `${index + 1} Year Prior`,
-          data: values || [],
-          borderColor: colors[(index + 1) % colors.length],
-          backgroundColor: 'transparent',
-          borderDash: [6, 4],
-          tension: 0.4,
-          pointRadius: 3,
-          pointHoverRadius: 6,
-          borderWidth: 2
-        })
+        if (values && values.length > 0) {
+          datasets.push({
+            label: `${index + 1} Year Prior`,
+            data: values || [],
+            borderColor: colors[(index + 1) % colors.length],
+            backgroundColor: 'transparent',
+            borderDash: [6, 4],
+            tension: 0.4,
+            pointRadius: 3,
+            pointHoverRadius: 6,
+            borderWidth: 2
+          })
+        }
       })
     }
     
@@ -181,7 +189,8 @@ function App() {
         crop: selectedPlot.crop,
         name: selectedPlot.name
       }, {
-        responseType: 'blob'
+        responseType: 'blob',
+        timeout: 120000  // 120 seconds for download
       })
       
       const url = window.URL.createObjectURL(new Blob([response.data]))
@@ -222,8 +231,8 @@ function App() {
             <h2>📍 Select a Demo Plot</h2>
             <div className="map-container">
               <MapContainer 
-                center={[29.0, 75.5]} 
-                zoom={8} 
+                center={[20.0, 78.0]} 
+                zoom={5} 
                 style={{ height: '350px', width: '100%' }}
               >
                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -234,9 +243,13 @@ function App() {
                     eventHandlers={{ click: () => analyzePlot(plot) }}
                   >
                     <Popup>
-                      <strong>{plot.name}</strong><br />
-                      🌾 {plot.crop}<br />
-                      📅 {plot.season}
+                      <div className="popup-content">
+                        <strong>{plot.name}</strong><br />
+                        <span>{plot.icon || '🌾'} {plot.crop}</span><br />
+                        <span>📅 {plot.season}</span><br />
+                        <span>📍 {plot.district}, {plot.state}</span>
+                        <p className="popup-description">{plot.description}</p>
+                      </div>
                     </Popup>
                   </Marker>
                 ))}
@@ -249,8 +262,10 @@ function App() {
                   className={`plot-btn ${selectedPlot?.id === plot.id ? 'active' : ''}`}
                   onClick={() => analyzePlot(plot)}
                 >
-                  <span className="crop-icon">🌾</span>
-                  {plot.name}
+                  <span className="crop-icon">{plot.icon || '🌾'}</span>
+                  <span className="plot-name">{plot.name}</span>
+                  <span className="plot-crop">{plot.crop}</span>
+                  <span className="plot-state">{plot.state}</span>
                 </button>
               ))}
             </div>
@@ -275,7 +290,7 @@ function App() {
               <div className="loading">
                 <div className="spinner"></div>
                 <p>Analyzing satellite and weather data...</p>
-                <p className="loading-hint">This may take 10-30 seconds</p>
+                <p className="loading-hint">This may take 30-90 seconds depending on data availability</p>
               </div>
             )}
 
@@ -379,7 +394,7 @@ function App() {
             {!analysis && !loading && !error && (
               <div className="placeholder">
                 <p>Select a plot on the map to run the analysis.</p>
-                <p className="hint">Showing data for the 2017 Haryana dispute case.</p>
+                <p className="hint">Showing data for documented cases across India</p>
               </div>
             )}
           </div>
