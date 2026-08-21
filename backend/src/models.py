@@ -16,6 +16,7 @@ class AnalysisResult(BaseModel):
     longitude: float
     crop: str
     season: str
+    damage_period: str
     
     # NDVI results
     current_ndvi_values: List[float]
@@ -37,7 +38,6 @@ class AnalysisResult(BaseModel):
     status: str
     status_description: str
     summary: str
-    appeal_text: str
     
     # Metadata
     image_count: int

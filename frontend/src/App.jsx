@@ -44,6 +44,7 @@ function App() {
   const [analysis, setAnalysis] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [downloading, setDownloading] = useState(false)
 
   // Fetch demo plots on mount
   useEffect(() => {
@@ -167,16 +168,37 @@ function App() {
     }
   }
 
-  const downloadAppeal = () => {
-    if (!analysis) return
-    const content = analysis.appeal_text || 'No appeal text available'
-    const blob = new Blob([content], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `appeal_${selectedPlot?.name || 'plot'}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
+  const downloadAppeal = async (format) => {
+    if (!selectedPlot || !analysis) return
+    
+    setDownloading(true)
+    try {
+      const response = await axios.post(`${API_URL}/api/appeal/${format}`, {
+        latitude: selectedPlot.latitude,
+        longitude: selectedPlot.longitude,
+        start_date: selectedPlot.damage_period.start,
+        end_date: selectedPlot.damage_period.end,
+        crop: selectedPlot.crop,
+        name: selectedPlot.name
+      }, {
+        responseType: 'blob'
+      })
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      const extensions = { pdf: 'pdf', word: 'docx', html: 'html' }
+      link.setAttribute('download', `appeal_${selectedPlot.name.replace(/\s+/g, '_')}.${extensions[format]}`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Download failed:', err)
+      alert('Failed to download appeal document. Please try again.')
+    } finally {
+      setDownloading(false)
+    }
   }
 
   return (
@@ -321,10 +343,36 @@ function App() {
                   <p>{analysis.summary || 'No summary available'}</p>
                 </div>
 
-                {/* Download Button */}
-                <button className="appeal-btn" onClick={downloadAppeal}>
-                  📄 Download Appeal Document
-                </button>
+                {/* Download Section */}
+                <div className="download-section">
+                  <p className="download-label">📄 Download Appeal Document:</p>
+                  <div className="download-buttons">
+                    <button 
+                      className="appeal-btn"
+                      onClick={() => downloadAppeal('pdf')}
+                      disabled={downloading}
+                    >
+                      PDF
+                    </button>
+                    <button 
+                      className="appeal-btn"
+                      onClick={() => downloadAppeal('word')}
+                      disabled={downloading}
+                    >
+                      Word
+                    </button>
+                    <button 
+                      className="appeal-btn"
+                      onClick={() => downloadAppeal('html')}
+                      disabled={downloading}
+                    >
+                      HTML
+                    </button>
+                  </div>
+                  {downloading && (
+                    <p className="downloading-text">⏳ Generating document...</p>
+                  )}
+                </div>
               </div>
             )}
 

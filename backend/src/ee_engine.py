@@ -8,20 +8,23 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import logging
+import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize Earth Engine
+EE_AVAILABLE = False
 try:
     ee.Initialize(project='fasalpramaan-earth-engine')
+    EE_AVAILABLE = True
     logger.info("✅ Earth Engine initialized successfully")
 except Exception as e:
-    logger.error(f"❌ Failed to initialize Earth Engine: {e}")
-    logger.info("⚠️  Running in mock mode (EE not available)")
-    EE_AVAILABLE = False
-else:
-    EE_AVAILABLE = True
+    logger.warning(f"⚠️ Earth Engine not available: {e}")
+    logger.warning("⚠️ Running in mock mode (EE not available)")
+
+# Earth Engine doesn't support async, but we can use timeouts
+EARTH_ENGINE_TIMEOUT = 8  # seconds per operation
 
 
 class EarthEngineAnalyzer:
@@ -30,7 +33,7 @@ class EarthEngineAnalyzer:
     def __init__(self):
         self.sentinel2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
         self.landsat = ee.ImageCollection("LANDSAT/LC09/C02/T1_L2")
-        
+    
     def get_ndvi_time_series(
         self, 
         latitude: float, 
@@ -43,88 +46,171 @@ class EarthEngineAnalyzer:
         Get NDVI time series for a specific location and date range.
         """
         if not EE_AVAILABLE:
-            return self._get_mock_ndvi_data(start_date, end_date)
-            
+            return self._get_empty_response("Earth Engine not available")
+        
         try:
             point = ee.Geometry.Point([longitude, latitude])
             
-            # Try Sentinel-2 first
-            collection = (self.sentinel2
+            # Build both collections but don't evaluate yet
+            sentinel_collection = (self.sentinel2
                 .filterBounds(point)
                 .filterDate(start_date, end_date)
-                .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', max_cloud_cover))
-                .sort('CLOUDY_PIXEL_PERCENTAGE'))
+                .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', max_cloud_cover)))
             
-            image_count = collection.size().getInfo()
-            logger.info(f"Found {image_count} Sentinel-2 images")
+            landsat_collection = (self.landsat
+                .filterBounds(point)
+                .filterDate(start_date, end_date)
+                .filter(ee.Filter.lt('CLOUD_COVER', max_cloud_cover)))
             
-            if image_count == 0:
-                # Fallback to Landsat
-                collection = (self.landsat
-                    .filterBounds(point)
-                    .filterDate(start_date, end_date)
-                    .filter(ee.Filter.lt('CLOUD_COVER', max_cloud_cover))
-                    .sort('CLOUD_COVER'))
-                image_count = collection.size().getInfo()
-                logger.info(f"Found {image_count} Landsat images")
+            # Check Sentinel-2 count first (with timeout)
+            sentinel_count = self._get_count_with_timeout(sentinel_collection)
+            logger.info(f"Found {sentinel_count} Sentinel-2 images")
+            
+            if sentinel_count > 0:
+                return self._process_collection(sentinel_collection, point, sentinel_count, "Sentinel-2")
+            
+            # Check Landsat count (with timeout)
+            landsat_count = self._get_count_with_timeout(landsat_collection)
+            logger.info(f"Found {landsat_count} Landsat images")
+            
+            if landsat_count > 0:
+                return self._process_collection(landsat_collection, point, landsat_count, "Landsat")
+            
+            # No images found — return empty with message
+            logger.info("No cloud-free imagery available for this location/period")
+            return self._get_empty_response("No cloud-free imagery available")
                 
-            if image_count == 0:
-                return {
-                    "dates": [],
-                    "ndvi_values": [],
-                    "cloud_cover": [],
-                    "message": "No cloud-free imagery available"
-                }
+        except Exception as e:
+            logger.error(f"Error in get_ndvi_time_series: {e}")
+            return self._get_empty_response(str(e))
+    
+    def _get_count_with_timeout(self, collection) -> int:
+        """Get collection size with timeout"""
+        try:
+            # Set a timeout for the getInfo call
+            import threading
+            result = [None]
+            error = [None]
             
-            # Calculate NDVI for each image
-            def calculate_ndvi(image):
-                # Sentinel-2: B8 (NIR), B4 (Red)
-                # Landsat: SR_B5 (NIR), SR_B4 (Red)
-                nir = image.select('B8')
-                red = image.select('B4')
-                ndvi = nir.subtract(red).divide(nir.add(red)).rename('NDVI')
-                return image.addBands(ndvi).set('date', image.date().format())
+            def target():
+                try:
+                    result[0] = collection.size().getInfo()
+                except Exception as e:
+                    error[0] = e
             
-            ndvi_collection = collection.map(calculate_ndvi)
+            thread = threading.Thread(target=target)
+            thread.start()
+            thread.join(timeout=EARTH_ENGINE_TIMEOUT)
             
-            # Extract data points
+            if thread.is_alive():
+                logger.warning("⏱️ Earth Engine operation timed out")
+                return 0
+            
+            if error[0]:
+                raise error[0]
+            
+            return result[0] if result[0] is not None else 0
+            
+        except Exception as e:
+            logger.warning(f"Count check failed: {e}")
+            return 0
+    
+    def _process_collection(self, collection, point, count: int, source: str) -> Dict:
+        """Process images from a collection"""
+        try:
             dates = []
             ndvi_values = []
             cloud_covers = []
             
-            ndvi_list = ndvi_collection.toList(ndvi_collection.size())
+            limit = min(count, 20)
+            ndvi_list = collection.toList(limit)
             
-            for i in range(min(image_count, 30)):  # Limit to 30 images
-                image = ee.Image(ndvi_list.get(i))
-                ndvi_point = image.select('NDVI').reduceRegion(
-                    reducer=ee.Reducer.mean(),
-                    geometry=point,
-                    scale=20,
-                    maxPixels=1e9
-                )
-                
-                ndvi_val = ndvi_point.get('NDVI').getInfo()
-                
-                if ndvi_val is not None and not np.isnan(ndvi_val):
-                    date_str = image.date().format().getInfo()[:10]
-                    cloud = image.get('CLOUDY_PIXEL_PERCENTAGE').getInfo() if 'CLOUDY_PIXEL_PERCENTAGE' in image.getInfo() else 0
+            for i in range(limit):
+                try:
+                    img = ee.Image(ndvi_list.get(i))
                     
-                    dates.append(date_str)
-                    ndvi_values.append(float(ndvi_val))
-                    cloud_covers.append(float(cloud))
+                    # Calculate NDVI
+                    if source == "Sentinel-2":
+                        nir = img.select('B8')
+                        red = img.select('B4')
+                        cloud = img.get('CLOUDY_PIXEL_PERCENTAGE')
+                    else:  # Landsat
+                        nir = img.select('SR_B5')
+                        red = img.select('SR_B4')
+                        cloud = img.get('CLOUD_COVER')
+                    
+                    ndvi = nir.subtract(red).divide(nir.add(red)).rename('NDVI')
+                    ndvi_img = img.addBands(ndvi)
+                    
+                    # Extract NDVI at point
+                    ndvi_point = ndvi_img.select('NDVI').reduceRegion(
+                        reducer=ee.Reducer.mean(),
+                        geometry=point,
+                        scale=20,
+                        maxPixels=1e9
+                    )
+                    
+                    val = self._get_value_with_timeout(ndvi_point.get('NDVI'))
+                    
+                    if val is not None and not np.isnan(val):
+                        date_str = self._get_value_with_timeout(img.date().format())
+                        cloud_val = self._get_value_with_timeout(cloud)
+                        
+                        if date_str:
+                            dates.append(date_str[:10])
+                            ndvi_values.append(float(val))
+                            cloud_covers.append(float(cloud_val) if cloud_val else 0)
+                            
+                except Exception as e:
+                    logger.warning(f"Skipping image {i}: {e}")
+                    continue
             
-            return {
-                "dates": dates,
-                "ndvi_values": ndvi_values,
-                "cloud_cover": cloud_covers,
-                "image_count": len(dates),
-                "message": f"Extracted {len(dates)} data points"
-            }
+            if dates:
+                logger.info(f"✅ Extracted {len(dates)} NDVI points from {source}")
+                return {
+                    "dates": dates,
+                    "ndvi_values": ndvi_values,
+                    "cloud_cover": cloud_covers,
+                    "image_count": len(dates),
+                    "message": f"Extracted {len(dates)} data points from {source}"
+                }
+            else:
+                return self._get_empty_response("No valid NDVI values extracted")
+                
+        except Exception as e:
+            logger.error(f"Processing failed: {e}")
+            return self._get_empty_response(str(e))
+    
+    def _get_value_with_timeout(self, ee_object, default=None):
+        """Get a value from Earth Engine with timeout"""
+        try:
+            import threading
+            result = [None]
+            error = [None]
+            
+            def target():
+                try:
+                    result[0] = ee_object.getInfo()
+                except Exception as e:
+                    error[0] = e
+            
+            thread = threading.Thread(target=target)
+            thread.start()
+            thread.join(timeout=EARTH_ENGINE_TIMEOUT)
+            
+            if thread.is_alive():
+                logger.warning("⏱️ getInfo timed out")
+                return default
+            
+            if error[0]:
+                raise error[0]
+            
+            return result[0] if result[0] is not None else default
             
         except Exception as e:
-            logger.error(f"Error in get_ndvi_time_series: {e}")
-            return self._get_mock_ndvi_data(start_date, end_date)
-
+            logger.warning(f"getInfo failed: {e}")
+            return default
+    
     def get_historical_baseline(
         self, 
         latitude: float, 
@@ -136,63 +222,58 @@ class EarthEngineAnalyzer:
         """
         Get historical NDVI baseline for comparison.
         """
-        start = datetime.fromisoformat(current_season_start)
-        end = datetime.fromisoformat(current_season_end)
+        try:
+            start = datetime.fromisoformat(current_season_start)
+            end = datetime.fromisoformat(current_season_end)
+        except:
+            start = datetime.now() - timedelta(days=90)
+            end = datetime.now()
         
-        historical_data = []
+        historical_ndvi = []
         historical_dates = []
         
         for year_offset in range(1, num_prior_seasons + 1):
-            season_start = start.replace(year=start.year - year_offset)
-            season_end = end.replace(year=end.year - year_offset)
-            
-            if season_start > season_end:
-                season_start = season_start.replace(year=season_start.year - 1)
-            
-            start_str = season_start.strftime("%Y-%m-%d")
-            end_str = season_end.strftime("%Y-%m-%d")
-            
-            logger.info(f"Fetching season {year_offset} prior: {start_str} to {end_str}")
-            
-            result = self.get_ndvi_time_series(
-                latitude, longitude, start_str, end_str
-            )
-            
-            if result.get('ndvi_values'):
-                historical_data.append(result['ndvi_values'])
-                historical_dates.append(result['dates'])
-            else:
-                # Use mock data if no real data
-                mock = self._get_mock_ndvi_data(start_str, end_str)
-                historical_data.append(mock['ndvi_values'])
-                historical_dates.append(mock['dates'])
+            try:
+                season_start = start.replace(year=start.year - year_offset)
+                season_end = end.replace(year=end.year - year_offset)
+                
+                if season_start > season_end:
+                    season_start = season_start.replace(year=season_start.year - 1)
+                
+                start_str = season_start.strftime("%Y-%m-%d")
+                end_str = season_end.strftime("%Y-%m-%d")
+                
+                logger.info(f"📊 Fetching season {year_offset} prior")
+                
+                data = self.get_ndvi_time_series(
+                    latitude, longitude, start_str, end_str
+                )
+                
+                if data.get('ndvi_values'):
+                    historical_ndvi.append(data['ndvi_values'])
+                    historical_dates.append(data['dates'])
+                else:
+                    # Return empty season (no mock data)
+                    logger.warning(f"No data for season {year_offset} prior")
+                    historical_ndvi.append([])
+                    historical_dates.append([])
+                    
+            except Exception as e:
+                logger.warning(f"Error fetching season {year_offset}: {e}")
+                historical_ndvi.append([])
+                historical_dates.append([])
         
         return {
-            "historical_ndvi": historical_data,
+            "historical_ndvi": historical_ndvi,
             "historical_dates": historical_dates
         }
-
-    def _get_mock_ndvi_data(self, start_date: str, end_date: str) -> Dict:
-        """Generate mock NDVI data for testing."""
-        dates = []
-        ndvi_values = []
-        
-        start = datetime.fromisoformat(start_date)
-        end = datetime.fromisoformat(end_date)
-        
-        # Generate weekly data points
-        current = start
-        while current <= end:
-            dates.append(current.strftime("%Y-%m-%d"))
-            # Healthy crops: NDVI 0.4-0.8, stressed: 0.2-0.4
-            ndvi = 0.5 + 0.15 * np.sin(np.random.rand() * 2 * np.pi)
-            ndvi_values.append(float(ndvi))
-            current += timedelta(days=7)
-        
+    
+    def _get_empty_response(self, message: str) -> Dict:
+        """Return empty response with message"""
         return {
-            "dates": dates,
-            "ndvi_values": ndvi_values,
-            "cloud_cover": [10] * len(dates),
-            "image_count": len(dates),
-            "message": "Mock data generated"
+            "dates": [],
+            "ndvi_values": [],
+            "cloud_cover": [],
+            "image_count": 0,
+            "message": message
         }

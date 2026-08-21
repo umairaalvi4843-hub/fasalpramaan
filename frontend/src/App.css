@@ -362,8 +362,45 @@ body {
 }
 
 /* ============================================
-   APPEAL BUTTON
+   DOWNLOAD SECTION
    ============================================ */
+.download-section {
+    margin-top: 0.5rem;
+}
+
+.download-label {
+    font-size: 0.85rem;
+    color: #64748b;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+}
+
+.download-buttons {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.download-buttons .appeal-btn {
+    flex: 0 1 auto;
+    padding: 0.5rem 1.2rem;
+    font-size: 0.85rem;
+    min-width: 80px;
+    justify-content: center;
+}
+
+.download-buttons .appeal-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.downloading-text {
+    font-size: 0.85rem;
+    color: #64748b;
+    margin-top: 0.5rem;
+}
+
 .appeal-btn {
     display: inline-flex;
     align-items: center;
@@ -443,6 +480,12 @@ body {
         min-width: 100px;
         padding: 0.5rem 0.8rem;
         font-size: 0.8rem;
+    }
+
+    .download-buttons .appeal-btn {
+        min-width: 60px;
+        padding: 0.4rem 0.8rem;
+        font-size: 0.75rem;
     }
 }
 

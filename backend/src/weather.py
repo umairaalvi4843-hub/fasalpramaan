@@ -16,12 +16,14 @@ class WeatherAnalyzer:
     """Fetches and analyzes weather data from Open-Meteo"""
     
     ERA5_URL = "https://archive-api.open-meteo.com/v1/era5"
+    FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
     
     def __init__(self):
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': 'FasalPramaan/1.0'
         })
+        self.timeout_seconds = 30
     
     def get_complete_weather_data(
         self,
@@ -46,8 +48,12 @@ class WeatherAnalyzer:
                 "end_date": end_date
             }
             
-            response = self.session.get(self.ERA5_URL, params=params, timeout=30)
-            response.raise_for_status()
+            response = self._safe_request(self.ERA5_URL, params)
+            
+            if response is None:
+                logger.warning("⚠️ No response from ERA5 API, using mock data")
+                return self._get_mock_data()
+            
             data = response.json()
             
             if "daily" in data and data["daily"].get("precipitation_sum"):
@@ -69,6 +75,28 @@ class WeatherAnalyzer:
             logger.error(f"❌ Error fetching weather: {e}")
             return self._get_mock_data()
     
+    def _safe_request(self, url: str, params: Dict, retries: int = 2) -> Optional[requests.Response]:
+        """Safely make a request with timeout and retries"""
+        for attempt in range(retries):
+            try:
+                response = self.session.get(url, params=params, timeout=self.timeout_seconds)
+                response.raise_for_status()
+                return response
+            except requests.exceptions.Timeout:
+                logger.warning(f"⏱️ Request timeout after {self.timeout_seconds}s (attempt {attempt + 1}/{retries})")
+                if attempt < retries - 1:
+                    continue
+                return None
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"⚠️ Request failed: {e} (attempt {attempt + 1}/{retries})")
+                if attempt < retries - 1:
+                    continue
+                return None
+            except Exception as e:
+                logger.error(f"❌ Unexpected error: {e}")
+                return None
+        return None
+    
     def _process_real_data(self, daily: Dict, latitude: float, longitude: float) -> Dict:
         """Process real weather data into the expected format"""
         precip = daily.get("precipitation_sum", [])
@@ -76,9 +104,10 @@ class WeatherAnalyzer:
         temp_min = daily.get("temperature_2m_min", [])
         temp_mean = daily.get("temperature_2m_mean", [])
         
-        # Calculate statistics
-        total_rainfall = sum([p for p in precip if p is not None])
-        rainy_days = len([p for p in precip if p is not None and p > 0.1])
+        # Calculate statistics with safe handling
+        valid_precip = [p for p in precip if p is not None]
+        total_rainfall = sum(valid_precip) if valid_precip else 0
+        rainy_days = len([p for p in valid_precip if p > 0.1])
         
         # Temperature stats
         valid_max = [t for t in temp_max if t is not None]
@@ -96,22 +125,7 @@ class WeatherAnalyzer:
         diff_percent = ((total_rainfall - historical_avg) / historical_avg * 100) if historical_avg > 0 else 0
         
         # Generate comparison text
-        if diff_percent < -50:
-            comparison = f"⚠️ Extreme rainfall deficit: {abs(diff_percent):.0f}% below normal (severe drought)"
-        elif diff_percent < -30:
-            comparison = f"⚠️ Significant rainfall deficit: {abs(diff_percent):.0f}% below normal (drought)"
-        elif diff_percent < -15:
-            comparison = f"⚠️ Moderate rainfall deficit: {abs(diff_percent):.0f}% below normal"
-        elif diff_percent < -5:
-            comparison = f"⚠️ Slight rainfall deficit: {abs(diff_percent):.0f}% below normal"
-        elif diff_percent < 5:
-            comparison = f"✅ Near normal rainfall ({abs(diff_percent):.0f}% difference)"
-        elif diff_percent < 15:
-            comparison = f"✅ Above normal rainfall: {diff_percent:.0f}% above normal"
-        elif diff_percent < 30:
-            comparison = f"⚠️ Significantly above normal: {diff_percent:.0f}% above normal"
-        else:
-            comparison = f"⚠️ Extreme rainfall surplus: {diff_percent:.0f}% above normal"
+        comparison = self._generate_comparison(diff_percent)
         
         # Weather summary
         weather_summary = self._generate_weather_summary(precip, temp_max)
@@ -130,34 +144,61 @@ class WeatherAnalyzer:
             "weather_summary": weather_summary,
             "daily_data": daily,
             "data_source": "ERA5-Land (REAL DATA ✅)",
-            "message": f"Weather data from ERA5-Land reanalysis"
+            "message": "Weather data from ERA5-Land reanalysis"
         }
     
-    def _get_historical_average(self, latitude: float, longitude: float) -> float:
-        """Get regional historical rainfall average"""
-        # Haryana region
-        if 28.0 < latitude < 30.5 and 74.0 < longitude < 77.5:
-            return 210.0
-        elif 29.5 < latitude < 32.5 and 73.5 < longitude < 76.5:
-            return 180.0
-        elif 24.0 < latitude < 29.0 and 77.0 < longitude < 84.0:
-            return 250.0
-        return 200.0
+    def _generate_comparison(self, diff_percent: float) -> str:
+        """Generate comparison text based on percentage difference"""
+        abs_diff = abs(diff_percent)
+        
+        if diff_percent < -50:
+            return f"⚠️ Extreme rainfall deficit: {abs_diff:.0f}% below normal (severe drought)"
+        elif diff_percent < -30:
+            return f"⚠️ Significant rainfall deficit: {abs_diff:.0f}% below normal (drought)"
+        elif diff_percent < -15:
+            return f"⚠️ Moderate rainfall deficit: {abs_diff:.0f}% below normal"
+        elif diff_percent < -5:
+            return f"⚠️ Slight rainfall deficit: {abs_diff:.0f}% below normal"
+        elif diff_percent < 5:
+            return f"✅ Near normal rainfall ({abs_diff:.0f}% difference)"
+        elif diff_percent < 15:
+            return f"✅ Above normal rainfall: {diff_percent:.0f}% above normal"
+        elif diff_percent < 30:
+            return f"⚠️ Significantly above normal: {diff_percent:.0f}% above normal"
+        else:
+            return f"⚠️ Extreme rainfall surplus: {diff_percent:.0f}% above normal"
     
     def _generate_weather_summary(self, precip: List[float], temp_max: List[float]) -> str:
         """Generate a weather summary"""
         if not precip:
             return "Weather data not available"
         
-        total = sum(precip)
-        rainy = len([p for p in precip if p > 0.1])
-        total_days = len(precip)
+        valid_precip = [p for p in precip if p is not None]
+        total = sum(valid_precip) if valid_precip else 0
+        rainy = len([p for p in valid_precip if p > 0.1])
+        total_days = len(valid_precip)
         
         if temp_max:
-            avg_temp = sum(temp_max) / len(temp_max)
-            return f"Total rainfall: {total:.1f}mm over {rainy} days. Avg max temp: {avg_temp:.1f}°C"
-        else:
-            return f"Total rainfall: {total:.1f}mm over {rainy} days"
+            valid_temp = [t for t in temp_max if t is not None]
+            if valid_temp:
+                avg_temp = sum(valid_temp) / len(valid_temp)
+                return f"Total rainfall: {total:.1f}mm over {rainy} days. Avg max temp: {avg_temp:.1f}°C"
+        
+        return f"Total rainfall: {total:.1f}mm over {rainy} days"
+    
+    def _get_historical_average(self, latitude: float, longitude: float) -> float:
+        """Get regional historical rainfall average"""
+        # Haryana region
+        if 28.0 < latitude < 30.5 and 74.0 < longitude < 77.5:
+            return 210.0
+        # Punjab region
+        elif 29.5 < latitude < 32.5 and 73.5 < longitude < 76.5:
+            return 180.0
+        # Uttar Pradesh
+        elif 24.0 < latitude < 29.0 and 77.0 < longitude < 84.0:
+            return 250.0
+        # Default
+        return 200.0
     
     def _get_mock_data(self) -> Dict:
         """Return mock data as fallback"""
@@ -171,6 +212,7 @@ class WeatherAnalyzer:
             "historical_avg_rainfall": 210.0,
             "comparison": "⚠️ Significant rainfall deficit: 40% below normal (drought) [MOCK]",
             "weather_summary": "Rainfall: 125.4mm over 8 days [MOCK]",
+            "daily_data": {},
             "data_source": "MOCK DATA",
             "message": "⚠️ Using mock weather data"
         }

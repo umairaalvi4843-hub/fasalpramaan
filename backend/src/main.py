@@ -1,9 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from src.config import settings
 from src.models import PlotRequest, AnalysisResult
 from src.ee_engine import EarthEngineAnalyzer
 from src.weather import WeatherAnalyzer
+from src.appeal_generator import AppealGenerator
 import numpy as np
 import logging
 
@@ -28,6 +30,7 @@ app.add_middleware(
 # Initialize analyzers
 ee_analyzer = EarthEngineAnalyzer()
 weather_analyzer = WeatherAnalyzer()
+appeal_generator = AppealGenerator()
 
 @app.get("/")
 async def root():
@@ -120,34 +123,6 @@ async def analyze_plot(request: PlotRequest):
         else:
             summary = f"The analysis shows vegetation health during the claimed damage period is within the normal range. {rainfall_comparison}."
         
-        # Generate detailed appeal text
-        appeal_text = f"""To the District Grievance Redressal Committee,
-
-I am writing to formally appeal the crop insurance assessment for my plot in [District], [State] for the [Season] season.
-
-Based on independent satellite data analysis using Sentinel-2 imagery and weather data from Open-Meteo ERA5 reanalysis, the following evidence is presented:
-
-1. NDVI (vegetation health) during the claimed damage period was {abs(deviation_score):.1f} standard deviations below the historical average for the same plot.
-
-2. Weather Analysis (Source: {weather_source}):
-   - Total rainfall: {weather_data.get('total_rainfall', 'N/A'):.1f} mm
-   - Rainy days: {weather_data.get('rainy_days', 'N/A')} days
-   - Average temperature: {weather_data.get('avg_temperature', 'N/A'):.1f}°C
-   - Rainfall comparison: {rainfall_comparison}
-
-3. Weather Summary: {weather_data.get('weather_summary', 'N/A')}
-
-4. The deviation score of {deviation_score:.2f} indicates {'significant vegetation stress' if is_anomaly else 'normal conditions'}.
-
-5. This independent analysis {'supports the claim of crop damage' if is_anomaly else 'does not support the claim of crop damage'}.
-
-I request a formal review of my claim with consideration of this independent evidence.
-
-Sincerely,
-[Farmer Name]
-[Contact Information]
-[Date]"""
-        
         return AnalysisResult(
             plot_id=request.name or "demo",
             plot_name=request.name or "Demo Plot",
@@ -155,6 +130,7 @@ Sincerely,
             longitude=request.longitude,
             crop=request.crop or "unknown",
             season="Kharif 2017",
+            damage_period=f"{request.start_date} to {request.end_date}",
             current_ndvi_values=current_ndvi,
             current_dates=current_dates,
             historical_ndvi_values=historical_ndvi,
@@ -168,11 +144,112 @@ Sincerely,
             status=status,
             status_description=status_desc,
             summary=summary,
-            appeal_text=appeal_text,
             image_count=len(current_ndvi),
             cloud_cover_avg=10.0
         )
         
     except Exception as e:
         logger.error(f"❌ Analysis failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/appeal/pdf")
+async def generate_appeal_pdf(request: PlotRequest):
+    """Generate a PDF appeal document"""
+    try:
+        analysis = await analyze_plot(request)
+        
+        data = {
+            'plot_name': analysis.plot_name,
+            'latitude': analysis.latitude,
+            'longitude': analysis.longitude,
+            'season': analysis.season,
+            'deviation_score': analysis.deviation_score,
+            'status': analysis.status,
+            'damage_period': analysis.damage_period,
+            'image_count': analysis.image_count,
+            'cloud_cover_avg': analysis.cloud_cover_avg,
+            'rainfall_total': analysis.rainfall_total,
+            'rainfall_days': analysis.rainfall_days,
+            'rainfall_comparison': analysis.rainfall_comparison,
+            'weather_source': analysis.weather_source,
+            'summary': analysis.summary
+        }
+        
+        pdf_bytes = appeal_generator.generate_pdf(data)
+        
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"attachment; filename=appeal_{request.name or 'plot'}.pdf"}
+        )
+    except Exception as e:
+        logger.error(f"PDF generation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/appeal/word")
+async def generate_appeal_word(request: PlotRequest):
+    """Generate a Word document appeal"""
+    try:
+        analysis = await analyze_plot(request)
+        
+        data = {
+            'plot_name': analysis.plot_name,
+            'latitude': analysis.latitude,
+            'longitude': analysis.longitude,
+            'season': analysis.season,
+            'deviation_score': analysis.deviation_score,
+            'status': analysis.status,
+            'damage_period': analysis.damage_period,
+            'image_count': analysis.image_count,
+            'cloud_cover_avg': analysis.cloud_cover_avg,
+            'rainfall_total': analysis.rainfall_total,
+            'rainfall_days': analysis.rainfall_days,
+            'rainfall_comparison': analysis.rainfall_comparison,
+            'weather_source': analysis.weather_source,
+            'summary': analysis.summary
+        }
+        
+        word_bytes = appeal_generator.generate_word(data)
+        
+        return Response(
+            content=word_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f"attachment; filename=appeal_{request.name or 'plot'}.docx"}
+        )
+    except Exception as e:
+        logger.error(f"Word generation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/appeal/html")
+async def generate_appeal_html(request: PlotRequest):
+    """Generate an HTML version of the appeal"""
+    try:
+        analysis = await analyze_plot(request)
+        
+        data = {
+            'plot_name': analysis.plot_name,
+            'latitude': analysis.latitude,
+            'longitude': analysis.longitude,
+            'season': analysis.season,
+            'deviation_score': analysis.deviation_score,
+            'status': analysis.status,
+            'damage_period': analysis.damage_period,
+            'image_count': analysis.image_count,
+            'cloud_cover_avg': analysis.cloud_cover_avg,
+            'rainfall_total': analysis.rainfall_total,
+            'rainfall_days': analysis.rainfall_days,
+            'rainfall_comparison': analysis.rainfall_comparison,
+            'weather_source': analysis.weather_source,
+            'summary': analysis.summary
+        }
+        
+        html_content = appeal_generator.generate_html(data)
+        
+        return Response(
+            content=html_content,
+            media_type="text/html",
+            headers={"Content-Disposition": f"attachment; filename=appeal_{request.name or 'plot'}.html"}
+        )
+    except Exception as e:
+        logger.error(f"HTML generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
