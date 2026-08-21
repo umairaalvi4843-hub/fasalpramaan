@@ -1,6 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List, Dict
-from datetime import date
+from typing import Optional, List
 
 class PlotRequest(BaseModel):
     latitude: float
@@ -9,11 +8,6 @@ class PlotRequest(BaseModel):
     end_date: str
     crop: Optional[str] = None
     name: Optional[str] = None
-
-class NDVIPoint(BaseModel):
-    date: str
-    ndvi: float
-    cloud_cover: float
 
 class AnalysisResult(BaseModel):
     plot_id: str
@@ -37,9 +31,10 @@ class AnalysisResult(BaseModel):
     rainfall_total: float
     rainfall_days: int
     rainfall_comparison: str
+    weather_source: str
     
     # Status
-    status: str  # "anomaly_detected" or "normal"
+    status: str
     status_description: str
     summary: str
     appeal_text: str
