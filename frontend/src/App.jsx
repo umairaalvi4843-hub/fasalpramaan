@@ -75,7 +75,7 @@ function App() {
         crop: plot.crop,
         name: plot.name
       }, {
-        timeout: 180000  // 180 seconds (3 minutes)
+        timeout: 180000
       })
       setAnalysis(res.data)
     } catch (err) {
@@ -190,7 +190,7 @@ function App() {
         name: selectedPlot.name
       }, {
         responseType: 'blob',
-        timeout: 120000  // 120 seconds for download
+        timeout: 120000
       })
       
       const url = window.URL.createObjectURL(new Blob([response.data]))
@@ -314,7 +314,7 @@ function App() {
                   </div>
                 </div>
 
-                {/* Stats Grid */}
+                {/* Stats Grid - 6 Cards */}
                 <div className="stats-grid">
                   <div className="stat-card">
                     <span className="stat-icon">🌿</span>
@@ -329,12 +329,18 @@ function App() {
                     <h4>Rainfall</h4>
                     <p className="stat-value">{(analysis.rainfall_total || 0).toFixed(1)} mm</p>
                     <p className="stat-label">{analysis.rainfall_comparison || 'No data'}</p>
-                    {analysis.weather_source && analysis.weather_source !== 'MOCK DATA' && (
-                      <p className="data-source">✅ {analysis.weather_source}</p>
-                    )}
-                    {analysis.weather_source && analysis.weather_source === 'MOCK DATA' && (
-                      <p className="data-source-mock">⚠️ {analysis.weather_source}</p>
-                    )}
+                  </div>
+                  <div className="stat-card">
+                    <span className="stat-icon">🌡️</span>
+                    <h4>Temperature</h4>
+                    <p className="stat-value">{(analysis.avg_temperature || 0).toFixed(1)}°C</p>
+                    <p className="stat-label">Avg | Max: {(analysis.max_temperature || 0).toFixed(1)}°C</p>
+                  </div>
+                  <div className="stat-card">
+                    <span className="stat-icon">💨</span>
+                    <h4>Humidity</h4>
+                    <p className="stat-value">{(analysis.avg_humidity || 0).toFixed(0)}%</p>
+                    <p className="stat-label">Average during period</p>
                   </div>
                   <div className="stat-card">
                     <span className="stat-icon">📅</span>
@@ -351,6 +357,20 @@ function App() {
                     <p className="stat-label">vegetation condition</p>
                   </div>
                 </div>
+
+                {/* Weather Summary */}
+                {analysis.weather_summary && (
+                  <div className="weather-summary-box">
+                    <h4>🌤️ Weather Summary</h4>
+                    <p>{analysis.weather_summary}</p>
+                    {analysis.weather_source && analysis.weather_source !== 'MOCK DATA' && (
+                      <p className="data-source">✅ {analysis.weather_source}</p>
+                    )}
+                    {analysis.weather_source && analysis.weather_source === 'MOCK DATA' && (
+                      <p className="data-source-mock">⚠️ {analysis.weather_source}</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Summary */}
                 <div className="summary-box">

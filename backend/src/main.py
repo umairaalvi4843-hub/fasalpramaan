@@ -8,6 +8,7 @@ from src.weather import WeatherAnalyzer
 from src.appeal_generator import AppealGenerator
 import numpy as np
 import logging
+import asyncio
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,21 +33,24 @@ ee_analyzer = EarthEngineAnalyzer()
 weather_analyzer = WeatherAnalyzer()
 appeal_generator = AppealGenerator()
 
+
 @app.get("/")
 async def root():
     return {"message": "FasalPramaan API", "status": "running", "version": "1.0.0"}
+
 
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
 
+
 @app.get("/api/demo-plots")
 async def get_demo_plots():
     return list(settings.DEMO_PLOTS.values())
 
-@app.post("/api/analyze", response_model=AnalysisResult)
-async def analyze_plot(request: PlotRequest):
-    """Analyze a plot using real satellite and weather data."""
+
+async def _perform_analysis(request: PlotRequest) -> AnalysisResult:
+    """Perform the actual analysis"""
     try:
         logger.info(f"📊 Analyzing plot at {request.latitude}, {request.longitude}")
         logger.info(f"📅 Period: {request.start_date} to {request.end_date}")
@@ -91,7 +95,8 @@ async def analyze_plot(request: PlotRequest):
         if current_ndvi and historical_ndvi:
             all_historical = []
             for season in historical_ndvi:
-                all_historical.extend(season)
+                if season:
+                    all_historical.extend(season)
             
             if all_historical:
                 mean_historical = np.mean(all_historical)
@@ -117,11 +122,12 @@ async def analyze_plot(request: PlotRequest):
         # Generate summary with REAL weather data
         rainfall_comparison = weather_data.get('comparison', 'No rainfall data available')
         weather_source = weather_data.get('data_source', 'Unknown')
+        weather_summary = weather_data.get('weather_summary', 'Weather data not available')
         
         if is_anomaly:
-            summary = f"The analysis shows a significant decline in vegetation health (NDVI) during the claimed damage period, which is {abs(deviation_score):.1f} standard deviations below the historical average. {rainfall_comparison}. This evidence can be used to support an insurance claim appeal."
+            summary = f"The analysis shows a significant decline in vegetation health (NDVI) during the claimed damage period, which is {abs(deviation_score):.1f} standard deviations below the historical average. {rainfall_comparison}. Weather conditions: {weather_summary}. This evidence can be used to support an insurance claim appeal."
         else:
-            summary = f"The analysis shows vegetation health during the claimed damage period is within the normal range. {rainfall_comparison}."
+            summary = f"The analysis shows vegetation health during the claimed damage period is within the normal range. {rainfall_comparison}. Weather conditions: {weather_summary}."
         
         return AnalysisResult(
             plot_id=request.name or "demo",
@@ -140,6 +146,11 @@ async def analyze_plot(request: PlotRequest):
             rainfall_total=weather_data.get('total_rainfall', 125.4),
             rainfall_days=weather_data.get('rainy_days', 8),
             rainfall_comparison=rainfall_comparison,
+            avg_temperature=weather_data.get('avg_temperature', 0),
+            max_temperature=weather_data.get('max_temperature', 0),
+            min_temperature=weather_data.get('min_temperature', 0),
+            avg_humidity=weather_data.get('avg_humidity', 0),
+            weather_summary=weather_summary,
             weather_source=weather_source,
             status=status,
             status_description=status_desc,
@@ -152,11 +163,30 @@ async def analyze_plot(request: PlotRequest):
         logger.error(f"❌ Analysis failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/api/analyze", response_model=AnalysisResult)
+async def analyze_plot(request: PlotRequest):
+    """Analyze a plot using real satellite and weather data."""
+    try:
+        # Run analysis with timeout
+        result = await asyncio.wait_for(
+            _perform_analysis(request),
+            timeout=120.0
+        )
+        return result
+    except asyncio.TimeoutError:
+        logger.error("⏱️ Analysis timed out after 120 seconds")
+        raise HTTPException(status_code=504, detail="Analysis timed out. Please try again.")
+    except Exception as e:
+        logger.error(f"❌ Analysis failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/api/appeal/pdf")
 async def generate_appeal_pdf(request: PlotRequest):
     """Generate a PDF appeal document"""
     try:
-        analysis = await analyze_plot(request)
+        analysis = await _perform_analysis(request)
         
         data = {
             'plot_name': analysis.plot_name,
@@ -172,6 +202,11 @@ async def generate_appeal_pdf(request: PlotRequest):
             'rainfall_days': analysis.rainfall_days,
             'rainfall_comparison': analysis.rainfall_comparison,
             'weather_source': analysis.weather_source,
+            'weather_summary': analysis.weather_summary,
+            'avg_temperature': analysis.avg_temperature,
+            'max_temperature': analysis.max_temperature,
+            'min_temperature': analysis.min_temperature,
+            'avg_humidity': analysis.avg_humidity,
             'summary': analysis.summary
         }
         
@@ -186,11 +221,12 @@ async def generate_appeal_pdf(request: PlotRequest):
         logger.error(f"PDF generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/api/appeal/word")
 async def generate_appeal_word(request: PlotRequest):
     """Generate a Word document appeal"""
     try:
-        analysis = await analyze_plot(request)
+        analysis = await _perform_analysis(request)
         
         data = {
             'plot_name': analysis.plot_name,
@@ -206,6 +242,11 @@ async def generate_appeal_word(request: PlotRequest):
             'rainfall_days': analysis.rainfall_days,
             'rainfall_comparison': analysis.rainfall_comparison,
             'weather_source': analysis.weather_source,
+            'weather_summary': analysis.weather_summary,
+            'avg_temperature': analysis.avg_temperature,
+            'max_temperature': analysis.max_temperature,
+            'min_temperature': analysis.min_temperature,
+            'avg_humidity': analysis.avg_humidity,
             'summary': analysis.summary
         }
         
@@ -220,11 +261,12 @@ async def generate_appeal_word(request: PlotRequest):
         logger.error(f"Word generation failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/api/appeal/html")
 async def generate_appeal_html(request: PlotRequest):
     """Generate an HTML version of the appeal"""
     try:
-        analysis = await analyze_plot(request)
+        analysis = await _perform_analysis(request)
         
         data = {
             'plot_name': analysis.plot_name,
@@ -240,6 +282,11 @@ async def generate_appeal_html(request: PlotRequest):
             'rainfall_days': analysis.rainfall_days,
             'rainfall_comparison': analysis.rainfall_comparison,
             'weather_source': analysis.weather_source,
+            'weather_summary': analysis.weather_summary,
+            'avg_temperature': analysis.avg_temperature,
+            'max_temperature': analysis.max_temperature,
+            'min_temperature': analysis.min_temperature,
+            'avg_humidity': analysis.avg_humidity,
             'summary': analysis.summary
         }
         

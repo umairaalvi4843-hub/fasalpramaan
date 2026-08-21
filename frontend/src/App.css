@@ -317,13 +317,13 @@ body {
    ============================================ */
 .stats-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, 1fr);
     gap: 0.75rem;
 }
 
 .stat-card {
     background: #f8fafc;
-    padding: 0.75rem 1rem;
+    padding: 0.75rem 0.5rem;
     border-radius: 8px;
     text-align: center;
 }
@@ -333,7 +333,7 @@ body {
 }
 
 .stat-card h4 {
-    font-size: 0.7rem;
+    font-size: 0.65rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     color: #64748b;
@@ -341,7 +341,7 @@ body {
 }
 
 .stat-value {
-    font-size: 1.6rem;
+    font-size: 1.4rem;
     font-weight: 700;
     margin: 0.15rem 0;
 }
@@ -355,10 +355,34 @@ body {
 }
 
 .stat-label {
-    font-size: 0.7rem;
+    font-size: 0.6rem;
     color: #94a3b8;
 }
 
+/* ============================================
+   WEATHER SUMMARY BOX
+   ============================================ */
+.weather-summary-box {
+    background: #f0f9ff;
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    border-left: 4px solid #0ea5e9;
+}
+
+.weather-summary-box h4 {
+    font-size: 0.8rem;
+    margin-bottom: 0.25rem;
+    color: #0369a1;
+}
+
+.weather-summary-box p {
+    font-size: 0.85rem;
+    color: #1e293b;
+}
+
+/* ============================================
+   DATA SOURCE BADGES
+   ============================================ */
 .data-source {
     font-size: 0.6rem;
     color: #16a34a;
@@ -489,6 +513,12 @@ body {
     }
 }
 
+@media (max-width: 768px) {
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
 @media (max-width: 600px) {
     .header {
         padding: 0.75rem 1rem;
@@ -503,7 +533,7 @@ body {
     }
 
     .stats-grid {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(2, 1fr);
     }
 
     .chart-container {

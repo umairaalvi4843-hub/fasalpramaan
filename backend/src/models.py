@@ -28,10 +28,15 @@ class AnalysisResult(BaseModel):
     deviation_score: float
     deviation_description: str
     
-    # Weather
+    # Weather - Enhanced
     rainfall_total: float
     rainfall_days: int
     rainfall_comparison: str
+    avg_temperature: float
+    max_temperature: float
+    min_temperature: float
+    avg_humidity: float
+    weather_summary: str
     weather_source: str
     
     # Status
