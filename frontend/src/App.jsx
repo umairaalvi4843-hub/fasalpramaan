@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import L from 'leaflet'
@@ -45,10 +45,19 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [downloading, setDownloading] = useState(false)
+  const [isAnimating, setIsAnimating] = useState(false)
+  const [animationStep, setAnimationStep] = useState(0)
+  const [animationData, setAnimationData] = useState([])
+  const animationInterval = useRef(null)
 
   // Fetch demo plots on mount
   useEffect(() => {
     fetchDemoPlots()
+    return () => {
+      if (animationInterval.current) {
+        clearInterval(animationInterval.current)
+      }
+    }
   }, [])
 
   const fetchDemoPlots = async () => {
@@ -65,6 +74,12 @@ function App() {
     setError(null)
     setSelectedPlot(plot)
     setAnalysis(null)
+    setAnimationData([])
+    setAnimationStep(0)
+    if (animationInterval.current) {
+      clearInterval(animationInterval.current)
+      animationInterval.current = null
+    }
     
     try {
       const res = await axios.post(`${API_URL}/api/analyze`, {
@@ -78,6 +93,14 @@ function App() {
         timeout: 180000
       })
       setAnalysis(res.data)
+      // Prepare animation data
+      if (res.data.current_ndvi_values && res.data.current_ndvi_values.length > 0) {
+        const data = res.data.current_ndvi_values.map((val, idx) => ({
+          date: res.data.current_dates[idx] || `Day ${idx + 1}`,
+          ndvi: val
+        }))
+        setAnimationData(data)
+      }
     } catch (err) {
       if (err.code === 'ECONNABORTED') {
         setError('⏱️ Analysis is taking longer than expected. The plot may have limited satellite data. Please try again or select a different plot.')
@@ -86,6 +109,32 @@ function App() {
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Start/Stop animation
+  const toggleAnimation = () => {
+    if (isAnimating) {
+      // Stop animation
+      if (animationInterval.current) {
+        clearInterval(animationInterval.current)
+        animationInterval.current = null
+      }
+      setIsAnimating(false)
+    } else {
+      // Start animation
+      setIsAnimating(true)
+      setAnimationStep(0)
+      animationInterval.current = setInterval(() => {
+        setAnimationStep((prev) => {
+          const maxStep = animationData.length > 0 ? animationData.length : 10
+          if (prev >= maxStep - 1) {
+            // Loop back to start
+            return 0
+          }
+          return prev + 1
+        })
+      }, 800)
     }
   }
 
@@ -132,6 +181,40 @@ function App() {
     }
   }
 
+  // Animation chart data
+  const getAnimationChartData = () => {
+    if (!analysis || animationData.length === 0) return null
+    
+    const currentStep = Math.min(animationStep + 1, animationData.length)
+    const animatedValues = animationData.slice(0, currentStep).map(d => d.ndvi)
+    const animatedLabels = animationData.slice(0, currentStep).map(d => d.date)
+    
+    // Pad with null values to maintain chart size
+    while (animatedValues.length < animationData.length) {
+      animatedValues.push(null)
+    }
+    while (animatedLabels.length < animationData.length) {
+      animatedLabels.push('')
+    }
+    
+    return {
+      labels: animatedLabels,
+      datasets: [
+        {
+          label: 'NDVI Progression',
+          data: animatedValues,
+          borderColor: '#2d6a4f',
+          backgroundColor: 'rgba(45, 106, 79, 0.2)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 6,
+          pointBackgroundColor: '#1a472a',
+          borderWidth: 3
+        }
+      ]
+    }
+  }
+
   const chartOptions = {
     responsive: true,
     maintainAspectRatio: false,
@@ -140,18 +223,19 @@ function App() {
         position: 'top',
         labels: {
           usePointStyle: true,
-          padding: 20,
-          font: { size: 12 }
+          padding: 16,
+          font: { size: 11 }
         }
       },
       title: {
         display: true,
         text: 'NDVI Time Series (Vegetation Health)',
-        font: { size: 14, weight: 'bold' }
+        font: { size: 13, weight: 'bold' }
       },
       tooltip: {
         callbacks: {
           label: function(context) {
+            if (context.parsed.y === null) return 'Loading...'
             return `${context.dataset.label}: ${context.parsed.y.toFixed(3)}`
           }
         }
@@ -164,15 +248,67 @@ function App() {
         ticks: { stepSize: 0.2 },
         title: {
           display: true,
-          text: 'NDVI (0-1)'
+          text: 'NDVI (0-1)',
+          font: { size: 10 }
         }
       },
       x: {
         title: {
           display: true,
-          text: 'Date'
+          text: 'Date',
+          font: { size: 10 }
         }
       }
+    }
+  }
+
+  const animationChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'top',
+        labels: {
+          usePointStyle: true,
+          padding: 16,
+          font: { size: 11 }
+        }
+      },
+      title: {
+        display: true,
+        text: '🌱 NDVI Progression Over Time',
+        font: { size: 13, weight: 'bold' }
+      },
+      tooltip: {
+        callbacks: {
+          label: function(context) {
+            if (context.parsed.y === null) return 'Loading...'
+            return `NDVI: ${context.parsed.y.toFixed(3)}`
+          }
+        }
+      }
+    },
+    scales: {
+      y: {
+        min: 0,
+        max: 1,
+        ticks: { stepSize: 0.2 },
+        title: {
+          display: true,
+          text: 'NDVI (0-1)',
+          font: { size: 10 }
+        }
+      },
+      x: {
+        title: {
+          display: true,
+          text: 'Date',
+          font: { size: 10 }
+        }
+      }
+    },
+    animation: {
+      duration: 0
     }
   }
 
@@ -227,13 +363,15 @@ function App() {
       <main className="main">
         {/* Left Panel - Map + Chart */}
         <div className="left-panel">
-          <div className="card map-section">
-            <h2>📍 Select a Demo Plot</h2>
+          <div className="card">
+            <div className="card-title">
+              <span className="icon">📍</span> Select a Demo Plot
+            </div>
             <div className="map-container">
               <MapContainer 
                 center={[20.0, 78.0]} 
                 zoom={5} 
-                style={{ height: '350px', width: '100%' }}
+                style={{ height: '100%', width: '100%' }}
               >
                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
                 {plots.map((plot) => (
@@ -244,11 +382,11 @@ function App() {
                   >
                     <Popup>
                       <div className="popup-content">
-                        <strong>{plot.name}</strong><br />
-                        <span>{plot.icon || '🌾'} {plot.crop}</span><br />
-                        <span>📅 {plot.season}</span><br />
-                        <span>📍 {plot.district}, {plot.state}</span>
-                        <p className="popup-description">{plot.description}</p>
+                        <div className="plot-name">{plot.name}</div>
+                        <div className="plot-detail">{plot.icon || '🌾'} {plot.crop}</div>
+                        <div className="plot-detail">📅 {plot.season}</div>
+                        <div className="plot-detail">📍 {plot.district}, {plot.state}</div>
+                        <div className="plot-description">{plot.description}</div>
                       </div>
                     </Popup>
                   </Marker>
@@ -262,29 +400,89 @@ function App() {
                   className={`plot-btn ${selectedPlot?.id === plot.id ? 'active' : ''}`}
                   onClick={() => analyzePlot(plot)}
                 >
-                  <span className="crop-icon">{plot.icon || '🌾'}</span>
-                  <span className="plot-name">{plot.name}</span>
-                  <span className="plot-crop">{plot.crop}</span>
-                  <span className="plot-state">{plot.state}</span>
+                  <span className="plot-name">{plot.icon || '🌾'} {plot.name}</span>
+                  <span className="plot-meta">{plot.crop} · {plot.state}</span>
                 </button>
               ))}
             </div>
           </div>
 
           {analysis && (
-            <div className="card chart-section">
-              <h3>📈 NDVI Trend</h3>
-              <div className="chart-container">
-                <Line data={getChartData()} options={chartOptions} />
+            <>
+              <div className="card">
+                <div className="card-title">
+                  <span className="icon">📈</span> NDVI Trend
+                </div>
+                <div className="chart-container">
+                  <Line data={getChartData()} options={chartOptions} />
+                </div>
               </div>
-            </div>
+
+              {/* Animation Chart */}
+              <div className="card">
+                <div className="animation-header">
+                  <div className="card-title" style={{ marginBottom: 0 }}>
+                    <span className="icon">▶️</span> NDVI Time Lapse
+                  </div>
+                  <div className="animation-controls">
+                    <button 
+                      className={`animation-btn ${isAnimating ? 'active' : ''}`}
+                      onClick={toggleAnimation}
+                      disabled={!animationData || animationData.length === 0}
+                    >
+                      {isAnimating ? '⏸️ Pause' : '▶️ Play'}
+                    </button>
+                    <span className="animation-step-info">
+                      {animationData.length > 0 ? `${Math.min(animationStep + 1, animationData.length)} / ${animationData.length}` : '0 / 0'}
+                    </span>
+                    <button 
+                      className="animation-btn reset-btn"
+                      onClick={() => {
+                        if (animationInterval.current) {
+                          clearInterval(animationInterval.current)
+                          animationInterval.current = null
+                        }
+                        setIsAnimating(false)
+                        setAnimationStep(0)
+                      }}
+                      disabled={!animationData || animationData.length === 0}
+                    >
+                      🔄 Reset
+                    </button>
+                  </div>
+                </div>
+                <div className="chart-container">
+                  {animationData && animationData.length > 0 ? (
+                    <Line 
+                      data={getAnimationChartData()} 
+                      options={animationChartOptions} 
+                      key={animationStep}
+                    />
+                  ) : (
+                    <div className="animation-placeholder">
+                      <p>No NDVI data available for animation</p>
+                    </div>
+                  )}
+                </div>
+                <div className="animation-progress">
+                  <div 
+                    className="animation-progress-bar" 
+                    style={{ 
+                      width: `${animationData.length > 0 ? ((animationStep + 1) / animationData.length * 100) : 0}%` 
+                    }}
+                  ></div>
+                </div>
+              </div>
+            </>
           )}
         </div>
 
         {/* Right Panel - Analysis Results */}
         <div className="right-panel">
-          <div className="card analysis-section">
-            <h2>📊 Analysis Results</h2>
+          <div className="card">
+            <div className="card-title">
+              <span className="icon">📊</span> Analysis Results
+            </div>
             
             {loading && (
               <div className="loading">
@@ -296,7 +494,7 @@ function App() {
 
             {error && (
               <div className="error">
-                <span className="error-icon">❌</span>
+                <span>❌</span>
                 <p>{error}</p>
               </div>
             )}
@@ -314,47 +512,47 @@ function App() {
                   </div>
                 </div>
 
-                {/* Stats Grid - 6 Cards */}
+                {/* Stats Grid */}
                 <div className="stats-grid">
                   <div className="stat-card">
-                    <span className="stat-icon">🌿</span>
+                    <div className="stat-icon">🌿</div>
                     <h4>NDVI Deviation</h4>
-                    <p className={`stat-value ${(analysis.deviation_score || 0) < -1 ? 'negative' : 'normal'}`}>
+                    <div className={`stat-value ${(analysis.deviation_score || 0) < -1 ? 'negative' : 'normal'}`}>
                       {(analysis.deviation_score || 0).toFixed(2)} σ
-                    </p>
-                    <p className="stat-label">from historical baseline</p>
+                    </div>
+                    <div className="stat-label">from historical baseline</div>
                   </div>
                   <div className="stat-card">
-                    <span className="stat-icon">💧</span>
+                    <div className="stat-icon">💧</div>
                     <h4>Rainfall</h4>
-                    <p className="stat-value">{(analysis.rainfall_total || 0).toFixed(1)} mm</p>
-                    <p className="stat-label">{analysis.rainfall_comparison || 'No data'}</p>
+                    <div className="stat-value">{(analysis.rainfall_total || 0).toFixed(1)} mm</div>
+                    <div className="stat-label">{analysis.rainfall_comparison || 'No data'}</div>
                   </div>
                   <div className="stat-card">
-                    <span className="stat-icon">🌡️</span>
+                    <div className="stat-icon">🌡️</div>
                     <h4>Temperature</h4>
-                    <p className="stat-value">{(analysis.avg_temperature || 0).toFixed(1)}°C</p>
-                    <p className="stat-label">Avg | Max: {(analysis.max_temperature || 0).toFixed(1)}°C</p>
+                    <div className="stat-value">{(analysis.avg_temperature || 0).toFixed(1)}°C</div>
+                    <div className="stat-label">Avg | Max: {(analysis.max_temperature || 0).toFixed(1)}°C</div>
                   </div>
                   <div className="stat-card">
-                    <span className="stat-icon">💨</span>
+                    <div className="stat-icon">💨</div>
                     <h4>Humidity</h4>
-                    <p className="stat-value">{(analysis.avg_humidity || 0).toFixed(0)}%</p>
-                    <p className="stat-label">Average during period</p>
+                    <div className="stat-value">{(analysis.avg_humidity || 0).toFixed(0)}%</div>
+                    <div className="stat-label">Average during period</div>
                   </div>
                   <div className="stat-card">
-                    <span className="stat-icon">📅</span>
+                    <div className="stat-icon">📅</div>
                     <h4>Data Points</h4>
-                    <p className="stat-value">{analysis.image_count || 0}</p>
-                    <p className="stat-label">cloud-free images</p>
+                    <div className="stat-value">{analysis.image_count || 0}</div>
+                    <div className="stat-label">cloud-free images</div>
                   </div>
                   <div className="stat-card">
-                    <span className="stat-icon">📊</span>
+                    <div className="stat-icon">📊</div>
                     <h4>Status</h4>
-                    <p className={`stat-value ${analysis.status === 'anomaly_detected' ? 'negative' : 'normal'}`}>
+                    <div className={`stat-value ${analysis.status === 'anomaly_detected' ? 'negative' : 'normal'}`}>
                       {analysis.status === 'anomaly_detected' ? '⚠️ Stress' : '✅ Healthy'}
-                    </p>
-                    <p className="stat-label">vegetation condition</p>
+                    </div>
+                    <div className="stat-label">vegetation condition</div>
                   </div>
                 </div>
 
@@ -364,10 +562,10 @@ function App() {
                     <h4>🌤️ Weather Summary</h4>
                     <p>{analysis.weather_summary}</p>
                     {analysis.weather_source && analysis.weather_source !== 'MOCK DATA' && (
-                      <p className="data-source">✅ {analysis.weather_source}</p>
+                      <div className="data-source">✅ {analysis.weather_source}</div>
                     )}
                     {analysis.weather_source && analysis.weather_source === 'MOCK DATA' && (
-                      <p className="data-source-mock">⚠️ {analysis.weather_source}</p>
+                      <div className="data-source-mock">⚠️ {analysis.weather_source}</div>
                     )}
                   </div>
                 )}
@@ -380,7 +578,7 @@ function App() {
 
                 {/* Download Section */}
                 <div className="download-section">
-                  <p className="download-label">📄 Download Appeal Document:</p>
+                  <div className="download-label">📄 Download Appeal Document:</div>
                   <div className="download-buttons">
                     <button 
                       className="appeal-btn"
@@ -405,7 +603,7 @@ function App() {
                     </button>
                   </div>
                   {downloading && (
-                    <p className="downloading-text">⏳ Generating document...</p>
+                    <div className="downloading-text">⏳ Generating document...</div>
                   )}
                 </div>
               </div>
@@ -414,7 +612,7 @@ function App() {
             {!analysis && !loading && !error && (
               <div className="placeholder">
                 <p>Select a plot on the map to run the analysis.</p>
-                <p className="hint">Showing data for documented cases across India</p>
+                <div className="hint">Showing data for documented cases across India</div>
               </div>
             )}
           </div>
