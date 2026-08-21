@@ -54,10 +54,6 @@ function App() {
   const [comparing, setComparing] = useState(false)
   const animationInterval = useRef(null)
 
-  // Chart refs for legend toggle
-  const chartRef = useRef(null)
-  const animationChartRef = useRef(null)
-
   useEffect(() => {
     fetchDemoPlots()
     return () => {
@@ -187,17 +183,6 @@ function App() {
     }
   }
 
-  // Legend click handler - toggles dataset visibility
-  const legendClickHandler = (e, legendItem, legend) => {
-    const chart = legend.chart
-    const datasetIndex = legendItem.datasetIndex
-    const meta = chart.getDatasetMeta(datasetIndex)
-    
-    // Toggle visibility
-    meta.hidden = meta.hidden === null ? !chart.data.datasets[datasetIndex].hidden : !meta.hidden
-    chart.update()
-  }
-
   const getChartData = () => {
     if (!analysis) return null
     
@@ -273,6 +258,15 @@ function App() {
         }
       ]
     }
+  }
+
+  // Legend click handler - toggles dataset visibility
+  const legendClickHandler = (e, legendItem, legend) => {
+    const chart = legend.chart
+    const datasetIndex = legendItem.datasetIndex
+    const meta = chart.getDatasetMeta(datasetIndex)
+    meta.hidden = meta.hidden === null ? !chart.data.datasets[datasetIndex].hidden : !meta.hidden
+    chart.update()
   }
 
   const chartOptions = {
@@ -515,6 +509,7 @@ function App() {
                     key={plot.id}
                     className={`plot-btn ${selectedPlot?.id === plot.id && !compareMode ? 'active' : ''} ${compareMode && isSelected ? 'compare-selected' : ''}`}
                     onClick={() => analyzePlot(plot)}
+                    disabled={loading || comparing}
                   >
                     <span className="plot-name">{plot.icon || '🌾'} {plot.name}</span>
                     <span className="plot-meta">{plot.crop} · {plot.state}</span>
@@ -532,11 +527,7 @@ function App() {
                   <span className="icon">📈</span> NDVI Trend
                 </div>
                 <div className="chart-container">
-                  <Line 
-                    ref={chartRef}
-                    data={getChartData()} 
-                    options={chartOptions} 
-                  />
+                  <Line data={getChartData()} options={chartOptions} />
                 </div>
               </div>
 
@@ -575,7 +566,6 @@ function App() {
                 <div className="chart-container">
                   {animationData && animationData.length > 0 ? (
                     <Line 
-                      ref={animationChartRef}
                       data={getAnimationChartData()} 
                       options={animationChartOptions} 
                       key={animationStep}

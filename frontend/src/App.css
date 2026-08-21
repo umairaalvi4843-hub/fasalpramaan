@@ -33,6 +33,7 @@ body {
     background: var(--bg);
     color: var(--text-primary);
     line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
 }
 
 /* ============================================
@@ -50,7 +51,7 @@ body {
 .header {
     background: var(--primary-gradient);
     color: white;
-    padding: 0.75rem 2rem;
+    padding: 0.75rem 1.5rem;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
     position: sticky;
     top: 0;
@@ -63,6 +64,8 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
 }
 
 .header-left {
@@ -128,10 +131,6 @@ body {
     transition: var(--transition);
 }
 
-.card:hover {
-    box-shadow: var(--shadow-hover);
-}
-
 .card-title {
     font-size: 0.9rem;
     font-weight: 600;
@@ -140,6 +139,7 @@ body {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex-wrap: wrap;
 }
 
 .card-title .icon {
@@ -211,10 +211,15 @@ body {
     gap: 0.1rem;
 }
 
-.plot-btn:hover {
+.plot-btn:hover:not(:disabled) {
     border-color: var(--primary-light);
     background: #f0f7f2;
     transform: translateY(-1px);
+}
+
+.plot-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .plot-btn.active {
@@ -238,7 +243,6 @@ body {
     color: rgba(255, 255, 255, 0.8);
 }
 
-/* Compare Selected */
 .plot-btn.compare-selected {
     border-color: var(--primary-light);
     background: #f0f7f2;
@@ -556,6 +560,7 @@ body {
     display: flex;
     align-items: center;
     gap: 0.4rem;
+    flex-wrap: wrap;
 }
 
 .animation-btn {
@@ -896,8 +901,10 @@ body {
 }
 
 /* ============================================
-   RESPONSIVE
+   RESPONSIVE BREAKPOINTS
    ============================================ */
+
+/* Tablet */
 @media (max-width: 1024px) {
     .main {
         grid-template-columns: 1fr;
@@ -924,8 +931,13 @@ body {
     .compare-vs {
         padding: 0.1rem 0;
     }
+
+    .map-container {
+        height: 280px;
+    }
 }
 
+/* Mobile Landscape & Small Tablets */
 @media (max-width: 768px) {
     .header {
         padding: 0.5rem 1rem;
@@ -993,8 +1005,15 @@ body {
     .compare-metrics {
         grid-template-columns: 1fr 1fr 1fr;
     }
+
+    .download-buttons .appeal-btn {
+        padding: 0.3rem 0.7rem;
+        font-size: 0.7rem;
+        min-width: 50px;
+    }
 }
 
+/* Mobile Portrait */
 @media (max-width: 480px) {
     .header h1 {
         font-size: 0.9rem;
@@ -1002,6 +1021,11 @@ body {
 
     .header .badge {
         font-size: 0.5rem;
+        padding: 0.1rem 0.4rem;
+    }
+
+    .header-content {
+        gap: 0.25rem;
     }
 
     .stats-grid {
@@ -1012,10 +1036,22 @@ body {
         grid-template-columns: 1fr 1fr;
     }
 
-    .download-buttons .appeal-btn {
-        padding: 0.3rem 0.6rem;
+    .plot-btn {
+        padding: 0.25rem 0.4rem;
+    }
+
+    .plot-btn .plot-name {
         font-size: 0.65rem;
-        min-width: 50px;
+    }
+
+    .plot-btn .plot-meta {
+        font-size: 0.55rem;
+    }
+
+    .download-buttons .appeal-btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.6rem;
+        min-width: 45px;
     }
 
     .map-container {
@@ -1025,5 +1061,108 @@ body {
     .animation-btn {
         padding: 0.2rem 0.5rem;
         font-size: 0.6rem;
+    }
+
+    .animation-step-info {
+        font-size: 0.6rem;
+        min-width: 30px;
+    }
+
+    .card-title {
+        font-size: 0.75rem;
+    }
+
+    .status-banner h3 {
+        font-size: 0.75rem;
+    }
+
+    .status-banner p {
+        font-size: 0.7rem;
+    }
+
+    .stat-card .stat-value {
+        font-size: 0.9rem;
+    }
+
+    .stat-card h4 {
+        font-size: 0.5rem;
+    }
+
+    .compare-item h4 {
+        font-size: 0.7rem;
+    }
+
+    .compare-metric .metric-value {
+        font-size: 0.7rem;
+    }
+
+    .compare-metric .metric-label {
+        font-size: 0.45rem;
+    }
+
+    .summary-box p {
+        font-size: 0.75rem;
+    }
+
+    .weather-summary-box p {
+        font-size: 0.7rem;
+    }
+
+    .compare-insights li {
+        font-size: 0.65rem;
+    }
+
+    .compare-recommendation p {
+        font-size: 0.65rem;
+    }
+
+    .compare-toggle-btn {
+        font-size: 0.65rem;
+        padding: 0.25rem 0.6rem;
+    }
+}
+
+/* Very Small Phones */
+@media (max-width: 360px) {
+    .header h1 {
+        font-size: 0.75rem;
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .plot-selector {
+        grid-template-columns: 1fr;
+    }
+
+    .compare-metrics {
+        grid-template-columns: 1fr;
+        gap: 0.2rem;
+    }
+
+    .download-buttons {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .download-buttons .appeal-btn {
+        width: 100%;
+    }
+
+    .map-container {
+        height: 150px;
+    }
+
+    .chart-container {
+        height: 120px;
+    }
+
+    .compare-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .compare-item {
+        padding: 0.5rem;
     }
 }
