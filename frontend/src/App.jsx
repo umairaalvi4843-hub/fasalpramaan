@@ -52,6 +52,14 @@ function App() {
   const [selectedPlots, setSelectedPlots] = useState([])
   const [compareResult, setCompareResult] = useState(null)
   const [comparing, setComparing] = useState(false)
+  const [chatQuery, setChatQuery] = useState('')
+  const [chatResponse, setChatResponse] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+  const [showChat, setShowChat] = useState(false)
+  const [chatMessages, setChatMessages] = useState([
+    { type: 'bot', text: '👋 Hi! Ask me about NDVI, crop stress, or filing an appeal.' }
+  ])
+  const chatEndRef = useRef(null)
   const animationInterval = useRef(null)
 
   useEffect(() => {
@@ -62,6 +70,12 @@ function App() {
       }
     }
   }, [])
+
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [chatMessages])
 
   const fetchDemoPlots = async () => {
     try {
@@ -260,7 +274,6 @@ function App() {
     }
   }
 
-  // Legend click handler - toggles dataset visibility
   const legendClickHandler = (e, legendItem, legend) => {
     const chart = legend.chart
     const datasetIndex = legendItem.datasetIndex
@@ -405,6 +418,39 @@ function App() {
       alert('Failed to download appeal document. Please try again.')
     } finally {
       setDownloading(false)
+    }
+  }
+
+  const askChatbot = async () => {
+    if (!chatQuery.trim()) return
+    
+    // Add user message
+    setChatMessages(prev => [...prev, { type: 'user', text: chatQuery }])
+    setChatQuery('')
+    setChatLoading(true)
+    
+    try {
+      const plot_data = analysis ? {
+        plot_name: analysis.plot_name,
+        crop: analysis.crop,
+        deviation_score: analysis.deviation_score,
+        rainfall_total: analysis.rainfall_total,
+        status: analysis.status
+      } : null
+      
+      const res = await axios.post(`${API_URL}/api/chat`, {
+        query: chatQuery,
+        plot_data: plot_data
+      }, {
+        timeout: 30000
+      })
+      
+      const botResponse = res.data.response || 'No response. Please try again.'
+      setChatMessages(prev => [...prev, { type: 'bot', text: botResponse }])
+    } catch (err) {
+      setChatMessages(prev => [...prev, { type: 'bot', text: '❌ Failed to get response. Please try again.' }])
+    } finally {
+      setChatLoading(false)
     }
   }
 
@@ -844,6 +890,54 @@ function App() {
           </div>
         </div>
       </main>
+
+      {/* Floating Chat Bubble */}
+      <div className="chat-float">
+        {showChat && (
+          <div className="chat-float-window">
+            <div className="chat-float-header">
+              <span>💬 FasalPramaan Assistant</span>
+              <button className="chat-float-close" onClick={() => setShowChat(false)}>✕</button>
+            </div>
+            <div className="chat-float-messages">
+              {chatMessages.map((msg, idx) => (
+                <div key={idx} className={`chat-float-msg ${msg.type}`}>
+                  {msg.type === 'bot' && <span className="chat-float-avatar">🌾</span>}
+                  <p>{msg.text}</p>
+                </div>
+              ))}
+              {chatLoading && (
+                <div className="chat-float-msg bot">
+                  <span className="chat-float-avatar">🌾</span>
+                  <div className="chat-typing">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                  </div>
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+            <div className="chat-float-input">
+              <input
+                type="text"
+                placeholder="Ask about NDVI, stress, appeals..."
+                value={chatQuery}
+                onChange={(e) => setChatQuery(e.target.value)}
+                onKeyPress={(e) => e.key === 'Enter' && askChatbot()}
+                disabled={chatLoading}
+              />
+              <button onClick={askChatbot} disabled={chatLoading || !chatQuery.trim()}>
+                Send
+              </button>
+            </div>
+          </div>
+        )}
+        <button className="chat-float-btn" onClick={() => setShowChat(!showChat)}>
+          💬
+          {!showChat && <span className="chat-float-badge">1</span>}
+        </button>
+      </div>
     </div>
   )
 }
