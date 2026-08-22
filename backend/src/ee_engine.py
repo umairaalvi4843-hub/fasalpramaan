@@ -25,7 +25,7 @@ try:
     is_render = os.getenv('RENDER') == 'true'
     
     if is_render:
-        ccredentials_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+        credentials_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
         if credentials_json:
             key_data = json.loads(credentials_json)
             service_account_email = key_data['client_email']
