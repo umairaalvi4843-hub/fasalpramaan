@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from src.config import settings
 from src.models import PlotRequest, AnalysisResult, CompareRequest, CompareResult
-from src.ee_engine import EarthEngineAnalyzer
+from src.ee_engine import EarthEngineAnalyzer, EE_AVAILABLE
 from src.weather import WeatherAnalyzer
 from src.appeal_generator import AppealGenerator
 from src.chatbot import Chatbot
@@ -11,6 +11,7 @@ import numpy as np
 import logging
 import asyncio
 import random
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -50,6 +51,16 @@ async def health_check():
 @app.get("/api/demo-plots")
 async def get_demo_plots():
     return list(settings.DEMO_PLOTS.values())
+
+
+@app.get("/api/ee-status")
+async def ee_status():
+    """Check Earth Engine initialization status"""
+    return {
+        "ee_available": EE_AVAILABLE,
+        "render": os.getenv('RENDER') == 'true',
+        "has_credentials": bool(os.getenv('EARTH_ENGINE_CREDENTIALS'))
+    }
 
 
 async def _perform_analysis(request: PlotRequest) -> AnalysisResult:
