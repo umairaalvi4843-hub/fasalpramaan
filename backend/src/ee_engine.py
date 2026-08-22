@@ -1,7 +1,6 @@
 """
 Earth Engine integration for FasalPramaan
 Handles Sentinel-2 imagery, NDVI calculation, and time series analysis
-With caching to reduce latency
 """
 
 import ee
@@ -14,18 +13,36 @@ import hashlib
 import json
 import os
 import random
+import tempfile
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Earth Engine
+# Initialize Earth Engine with service account
 EE_AVAILABLE = False
+
 try:
-    ee.Initialize(project='fasalpramaan-earth-engine')
-    EE_AVAILABLE = True
-    logger.info("✅ Earth Engine initialized successfully")
+    credentials_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+    
+    if credentials_json:
+        # Write credentials to temporary file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            f.write(credentials_json)
+            credentials_path = f.name
+        
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
+        ee.Initialize(project='fasalpramaan-earth-engine')
+        EE_AVAILABLE = True
+        logger.info("✅ Earth Engine initialized with service account")
+    else:
+        # Fallback for local development
+        ee.Initialize(project='fasalpramaan-earth-engine')
+        EE_AVAILABLE = True
+        logger.info("✅ Earth Engine initialized with default credentials")
+        
 except Exception as e:
-    logger.warning(f"⚠️ Earth Engine not available: {e}")
+    logger.error(f"❌ Earth Engine initialization failed: {e}")
+    logger.error("⚠️ Running in mock data mode")
 
 # Cache directory
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'cache')
@@ -39,8 +56,18 @@ class EarthEngineAnalyzer:
     """Main class for Earth Engine operations with caching"""
     
     def __init__(self):
-        self.sentinel2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
-        self.landsat = ee.ImageCollection("LANDSAT/LC09/C02/T1_L2")
+        self.sentinel2 = None
+        self.landsat = None
+        
+        if EE_AVAILABLE:
+            try:
+                self.sentinel2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
+                self.landsat = ee.ImageCollection("LANDSAT/LC09/C02/T1_L2")
+                logger.info("✅ Earth Engine collections initialized")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize collections: {e}")
+                global EE_AVAILABLE
+                EE_AVAILABLE = False
     
     def _get_cache_key(self, latitude: float, longitude: float, start_date: str, end_date: str) -> str:
         """Generate a unique cache key for a query"""
@@ -90,7 +117,7 @@ class EarthEngineAnalyzer:
         if cached:
             return cached
         
-        if not EE_AVAILABLE:
+        if not EE_AVAILABLE or self.sentinel2 is None:
             result = self._get_mock_data(latitude, longitude, start_date, end_date)
             self._save_to_cache(cache_key, result)
             return result
@@ -333,11 +360,7 @@ class EarthEngineAnalyzer:
         seed = int(abs(latitude * 100 + longitude * 100)) % 1000
         random.seed(seed)
         
-        # Base NDVI varies by location (different crops have different baselines)
-        # Sirsa (29.5, 75.0) -> cotton, ~0.45
-        # Bhiwani (28.8, 76.1) -> bajra, ~0.40
-        # Vidarbha (20.7, 78.6) -> cotton, ~0.42
-        # Mandya (12.5, 76.9) -> paddy, ~0.55
+        # Base NDVI varies by location
         base_ndvi = 0.35 + 0.30 * ((latitude % 5) / 5 + (longitude % 5) / 5) / 2
         base_ndvi = min(max(base_ndvi, 0.30), 0.70)
         
