@@ -18,31 +18,43 @@ import tempfile
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Earth Engine with service account
+# ============================================
+# INITIALIZE EARTH ENGINE
+# ============================================
 EE_AVAILABLE = False
 
 try:
-    credentials_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
+    # Check if running on Render
+    is_render = os.getenv('RENDER') == 'true'
     
-    if credentials_json:
-        # Write credentials to temporary file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            f.write(credentials_json)
-            credentials_path = f.name
+    if is_render:
+        # On Render - use personal credentials from environment
+        credentials_json = os.getenv('EARTH_ENGINE_CREDENTIALS')
         
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = credentials_path
-        ee.Initialize(project='fasalpramaan-earth-engine')
-        EE_AVAILABLE = True
-        logger.info("✅ Earth Engine initialized with service account")
+        if credentials_json:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                f.write(credentials_json)
+                credentials_path = f.name
+            
+            os.environ['EARTH_ENGINE_CREDENTIALS_FILE'] = credentials_path
+            
+            # Initialize using the credentials file
+            # The ee library should automatically pick it up
+            ee.Initialize(project='fasalpramaan-earth-engine')
+            EE_AVAILABLE = True
+            logger.info("✅ Earth Engine initialized with personal credentials")
+        else:
+            logger.error("❌ No Earth Engine credentials found on Render")
+            EE_AVAILABLE = False
     else:
-        # Fallback for local development
+        # Local development - use default authentication
         ee.Initialize(project='fasalpramaan-earth-engine')
         EE_AVAILABLE = True
-        logger.info("✅ Earth Engine initialized with default credentials")
+        logger.info("✅ Earth Engine initialized locally")
         
 except Exception as e:
     logger.error(f"❌ Earth Engine initialization failed: {e}")
-    logger.error("⚠️ Running in mock data mode")
+    EE_AVAILABLE = False
 
 # Cache directory
 CACHE_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'cache')
@@ -70,12 +82,10 @@ class EarthEngineAnalyzer:
                 EE_AVAILABLE = False
     
     def _get_cache_key(self, latitude: float, longitude: float, start_date: str, end_date: str) -> str:
-        """Generate a unique cache key for a query"""
         key = f"{latitude}_{longitude}_{start_date}_{end_date}"
         return hashlib.md5(key.encode()).hexdigest()
     
     def _get_cached_result(self, cache_key: str) -> Optional[Dict]:
-        """Get cached result if it exists and is recent (< 24 hours)"""
         cache_file = os.path.join(CACHE_DIR, f"{cache_key}.json")
         if os.path.exists(cache_file):
             try:
@@ -90,7 +100,6 @@ class EarthEngineAnalyzer:
         return None
     
     def _save_to_cache(self, cache_key: str, result: Dict):
-        """Save result to cache"""
         cache_file = os.path.join(CACHE_DIR, f"{cache_key}.json")
         try:
             data = {
@@ -111,16 +120,14 @@ class EarthEngineAnalyzer:
         end_date: str,
         max_cloud_cover: float = 20
     ) -> Dict:
-        """Get NDVI time series with caching."""
         cache_key = self._get_cache_key(latitude, longitude, start_date, end_date)
         cached = self._get_cached_result(cache_key)
         if cached:
             return cached
         
         if not EE_AVAILABLE or self.sentinel2 is None:
-            result = self._get_mock_data(latitude, longitude, start_date, end_date)
-            self._save_to_cache(cache_key, result)
-            return result
+            logger.warning("⚠️ Earth Engine not available - returning empty data")
+            return self._get_empty_response("Earth Engine not available")
         
         try:
             point = ee.Geometry.Point([longitude, latitude])
@@ -151,18 +158,14 @@ class EarthEngineAnalyzer:
                 self._save_to_cache(cache_key, result)
                 return result
             
-            result = self._get_mock_data(latitude, longitude, start_date, end_date)
-            self._save_to_cache(cache_key, result)
-            return result
+            logger.info("No cloud-free imagery available for this location/period")
+            return self._get_empty_response("No cloud-free imagery available")
                 
         except Exception as e:
             logger.error(f"Error in get_ndvi_time_series: {e}")
-            result = self._get_mock_data(latitude, longitude, start_date, end_date)
-            self._save_to_cache(cache_key, result)
-            return result
+            return self._get_empty_response(str(e))
     
     def _get_count_with_timeout(self, collection) -> int:
-        """Get collection size with timeout"""
         try:
             import threading
             result = [None]
@@ -192,7 +195,6 @@ class EarthEngineAnalyzer:
             return 0
     
     def _process_collection(self, collection, point, count: int, source: str) -> Dict:
-        """Process images from a collection - optimized"""
         try:
             dates = []
             ndvi_values = []
@@ -256,7 +258,6 @@ class EarthEngineAnalyzer:
             return self._get_empty_response(str(e))
     
     def _get_value_with_timeout(self, ee_object, default=None):
-        """Get a value from Earth Engine with timeout"""
         try:
             import threading
             result = [None]
@@ -293,7 +294,6 @@ class EarthEngineAnalyzer:
         current_season_end: str,
         num_prior_seasons: int = 2
     ) -> Dict:
-        """Get historical NDVI baseline with caching."""
         try:
             start = datetime.fromisoformat(current_season_start)
             end = datetime.fromisoformat(current_season_end)
@@ -325,68 +325,20 @@ class EarthEngineAnalyzer:
                     historical_ndvi.append(data['ndvi_values'])
                     historical_dates.append(data['dates'])
                 else:
-                    # Use location-based mock data
-                    mock = self._get_mock_data(latitude, longitude, start_str, end_str)
-                    historical_ndvi.append(mock['ndvi_values'])
-                    historical_dates.append(mock['dates'])
+                    historical_ndvi.append([])
+                    historical_dates.append([])
                     
             except Exception as e:
                 logger.warning(f"Error fetching season {year_offset}: {e}")
-                mock = self._get_mock_data(latitude, longitude, 
-                    (start - timedelta(days=365 * year_offset)).strftime("%Y-%m-%d"),
-                    (end - timedelta(days=365 * year_offset)).strftime("%Y-%m-%d")
-                )
-                historical_ndvi.append(mock['ndvi_values'])
-                historical_dates.append(mock['dates'])
+                historical_ndvi.append([])
+                historical_dates.append([])
         
         return {
             "historical_ndvi": historical_ndvi,
             "historical_dates": historical_dates
         }
     
-    def _get_mock_data(self, latitude: float, longitude: float, start_date: str, end_date: str) -> Dict:
-        """Generate location-based mock NDVI data."""
-        try:
-            start = datetime.fromisoformat(start_date)
-            end = datetime.fromisoformat(end_date)
-        except:
-            start = datetime.now() - timedelta(days=90)
-            end = datetime.now()
-        
-        dates = []
-        ndvi_values = []
-        
-        # Use location to seed unique values per plot
-        seed = int(abs(latitude * 100 + longitude * 100)) % 1000
-        random.seed(seed)
-        
-        # Base NDVI varies by location
-        base_ndvi = 0.35 + 0.30 * ((latitude % 5) / 5 + (longitude % 5) / 5) / 2
-        base_ndvi = min(max(base_ndvi, 0.30), 0.70)
-        
-        current = start
-        while current <= end:
-            dates.append(current.strftime("%Y-%m-%d"))
-            progress = (current - start).days / max((end - start).days, 1)
-            seasonal = 0.15 * (1 - abs(2 * progress - 1))
-            ndvi = min(base_ndvi + seasonal + 0.05 * random.random(), 0.85)
-            ndvi_values.append(float(ndvi))
-            current += timedelta(days=7)
-        
-        if not dates:
-            dates = [(start + timedelta(days=i*7)).strftime("%Y-%m-%d") for i in range(10)]
-            ndvi_values = [base_ndvi + 0.05 * (i % 5) for i in range(10)]
-        
-        return {
-            "dates": dates,
-            "ndvi_values": ndvi_values,
-            "cloud_cover": [10] * len(dates),
-            "image_count": len(dates),
-            "message": f"Generated {len(dates)} location-based data points"
-        }
-    
     def _get_empty_response(self, message: str) -> Dict:
-        """Return empty response with message"""
         return {
             "dates": [],
             "ndvi_values": [],
