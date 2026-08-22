@@ -25,13 +25,12 @@ try:
     is_render = os.getenv('RENDER') == 'true'
     
     if is_render:
-        credentials_json = os.getenv('EARTH_ENGINE_CREDENTIALS')
+        ccredentials_json = os.getenv('GOOGLE_APPLICATION_CREDENTIALS_JSON')
         if credentials_json:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                f.write(credentials_json)
-                credentials_path = f.name
-            os.environ['EARTH_ENGINE_CREDENTIALS_FILE'] = credentials_path
-            ee.Initialize(project='fasalpramaan-earth-engine')
+            key_data = json.loads(credentials_json)
+            service_account_email = key_data['client_email']
+            credentials = ee.ServiceAccountCredentials(email=service_account_email, key_data=credentials_json)
+            ee.Initialize(credentials, project='fasalpramaan-earth-engine')
             logger.info("✅ Earth Engine initialized on Render")
         else:
             logger.error("❌ No Earth Engine credentials on Render")
