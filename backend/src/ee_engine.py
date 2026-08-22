@@ -70,6 +70,7 @@ class EarthEngineAnalyzer:
         self.sentinel2 = None
         self.landsat = None
         
+        # Use the module-level EE_AVAILABLE variable
         if EE_AVAILABLE:
             try:
                 self.sentinel2 = ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
@@ -77,8 +78,8 @@ class EarthEngineAnalyzer:
                 logger.info("✅ Earth Engine collections initialized")
             except Exception as e:
                 logger.error(f"❌ Failed to initialize collections: {e}")
-                global EE_AVAILABLE
-                EE_AVAILABLE = False
+                # Set the module-level variable to False
+                globals()['EE_AVAILABLE'] = False
         else:
             logger.warning("⚠️ Earth Engine not available - running in fallback mode")
     
