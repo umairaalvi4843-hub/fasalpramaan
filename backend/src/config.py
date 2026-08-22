@@ -11,15 +11,15 @@ class Settings:
     OPEN_METEO_BASE_URL = os.getenv("OPEN_METEO_BASE_URL", "https://api.open-meteo.com/v1/forecast")
     
     # CORS - Allow both local and production
-    ALLOWED_ORIGINS = [
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "https://fasalpramaan.vercel.app",
-        "https://fasalpramaan-git-main.vercel.app",
-        "https://fasalpramaan.vercel.app",
-        "https://*.vercel.app",
-        "https://fasalpramaan-backend.onrender.com"
-    ]
+    AALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://fasalpramaan.vercel.app",
+    "https://fasalpramaan-git-main.vercel.app",
+    "https://fasalpramaan-6q9ywwx-umaira-s.vercel.app",  # ← ADD THIS
+    "https://*.vercel.app",
+    "https://fasalpramaan-backend.onrender.com"
+]
     
     # Demo plots - 4 documented cases across India
     DEMO_PLOTS = {
