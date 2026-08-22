@@ -39,10 +39,9 @@ try:
             os.environ['EARTH_ENGINE_CREDENTIALS_FILE'] = credentials_path
             
             # Initialize using the credentials file
-            # The ee library should automatically pick it up
             ee.Initialize(project='fasalpramaan-earth-engine')
             EE_AVAILABLE = True
-            logger.info("✅ Earth Engine initialized with personal credentials")
+            logger.info("✅ Earth Engine initialized with personal credentials on Render")
         else:
             logger.error("❌ No Earth Engine credentials found on Render")
             EE_AVAILABLE = False
@@ -80,6 +79,8 @@ class EarthEngineAnalyzer:
                 logger.error(f"❌ Failed to initialize collections: {e}")
                 global EE_AVAILABLE
                 EE_AVAILABLE = False
+        else:
+            logger.warning("⚠️ Earth Engine not available - running in fallback mode")
     
     def _get_cache_key(self, latitude: float, longitude: float, start_date: str, end_date: str) -> str:
         key = f"{latitude}_{longitude}_{start_date}_{end_date}"
